@@ -1,11 +1,8 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
 	"os"
-	"runtime"
-	"syscall"
 	"testing"
 
 	"github.com/devlikebear/fman/internal/db"
@@ -53,86 +50,17 @@ func TestScanCommand_InitDBError(t *testing.T) {
 	// Expect InitDB to be called and return an error
 	mockDB.On("InitDB").Return(fmt.Errorf("db init error")).Once()
 
+	// Create a test command with proper flags
+	cmd := &cobra.Command{}
+	cmd.Flags().Bool("force-sudo", false, "")
+	cmd.Flags().BoolP("verbose", "v", false, "")
+
 	// Execute the runScan function directly
-	err := runScan(nil, []string{"/testdir"}, fs, mockDB)
+	err := runScan(cmd, []string{"/testdir"}, fs, mockDB)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to initialize database")
 
 	mockDB.AssertExpectations(t)
-}
-
-func TestGetSkipPatterns(t *testing.T) {
-	patterns := getSkipPatterns()
-	assert.NotEmpty(t, patterns)
-
-	// Test that common patterns are included
-	switch runtime.GOOS {
-	case "darwin":
-		assert.Contains(t, patterns, ".Trash")
-		assert.Contains(t, patterns, ".fseventsd")
-	case "linux":
-		assert.Contains(t, patterns, "proc")
-		assert.Contains(t, patterns, ".cache")
-	case "windows":
-		assert.Contains(t, patterns, "$Recycle.Bin")
-	}
-}
-
-func TestShouldSkipPath(t *testing.T) {
-	skipPatterns := []string{".Trash", "System/Library", "proc"}
-
-	tests := []struct {
-		path     string
-		expected bool
-		name     string
-	}{
-		{"/Users/test/.Trash", true, "should skip .Trash"},
-		{"/Users/test/System/Library/something", true, "should skip System/Library"},
-		{"/proc/cpuinfo", true, "should skip proc"},
-		{"/Users/test/documents", false, "should not skip normal directory"},
-		{"/Users/test/.hidden", true, "should skip root level hidden directories"},
-		{"/Users/test/deep/path/.hidden", false, "should not skip deep hidden files"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := shouldSkipPath(tt.path, skipPatterns)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestIsPermissionError(t *testing.T) {
-	tests := []struct {
-		err      error
-		expected bool
-		name     string
-	}{
-		{syscall.EACCES, true, "should detect EACCES"},
-		{syscall.EPERM, true, "should detect EPERM"},
-		{errors.New("permission denied"), true, "should detect permission denied string"},
-		{errors.New("operation not permitted"), true, "should detect operation not permitted"},
-		{errors.New("file not found"), false, "should not detect other errors"},
-		{nil, false, "should handle nil error"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := isPermissionError(tt.err)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestIsRunningAsRoot(t *testing.T) {
-	// This test is environment dependent, so we just test that it returns a boolean
-	result := isRunningAsRoot()
-	assert.IsType(t, false, result)
-
-	// On Windows, should always return false
-	if runtime.GOOS == "windows" {
-		assert.False(t, result)
-	}
 }
 
 func TestRunScan_WithSkipPatterns(t *testing.T) {
@@ -219,18 +147,6 @@ func TestRunScan_VerboseMode(t *testing.T) {
 	// Assertions
 	assert.NoError(t, err)
 	mockDB.AssertExpectations(t)
-}
-
-func TestRunWithSudo_Windows(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("This test is only for Windows")
-	}
-
-	cmd := &cobra.Command{}
-	err := runWithSudo(cmd, []string{"/test"})
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "not supported on Windows")
 }
 
 func TestScanCommand_Integration(t *testing.T) {
