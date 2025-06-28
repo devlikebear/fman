@@ -121,3 +121,54 @@ func TestDuplicateCommandHelp(t *testing.T) {
 		assert.Contains(t, strings.ToLower(helpText), "directory")
 	})
 }
+
+func TestRunDuplicate(t *testing.T) {
+	// Create mock with expected behavior
+	mockDB := &MockDBInterface{}
+
+	// Test data
+	duplicateFiles := []db.File{
+		{ID: 1, Path: "/test/file1.txt", Name: "file1.txt", Size: 1024, FileHash: "hash123"},
+		{ID: 2, Path: "/test/copy/file1.txt", Name: "file1.txt", Size: 1024, FileHash: "hash123"},
+	}
+
+	t.Run("successful duplicate finding", func(t *testing.T) {
+		// Setup expectations
+		mockDB.On("FindFilesWithHashes", "/test", int64(0)).Return(duplicateFiles, nil).Once()
+
+		// Test the findDuplicateFiles function directly
+		groups, err := findDuplicateFiles(mockDB, "/test", 0)
+
+		assert.NoError(t, err)
+		assert.Len(t, groups, 1)
+		assert.Len(t, groups[0].Files, 2)
+		assert.Equal(t, "hash123", groups[0].Hash)
+
+		mockDB.AssertExpectations(t)
+	})
+
+	t.Run("no duplicates found", func(t *testing.T) {
+		mockDB := &MockDBInterface{}
+		mockDB.On("FindFilesWithHashes", "", int64(0)).Return([]db.File{}, nil).Once()
+
+		groups, err := findDuplicateFiles(mockDB, "", 0)
+
+		assert.NoError(t, err)
+		assert.Len(t, groups, 0)
+
+		mockDB.AssertExpectations(t)
+	})
+
+	t.Run("database error", func(t *testing.T) {
+		mockDB := &MockDBInterface{}
+		mockDB.On("FindFilesWithHashes", "", int64(0)).Return([]db.File(nil), errors.New("database error")).Once()
+
+		groups, err := findDuplicateFiles(mockDB, "", 0)
+
+		assert.Error(t, err)
+		assert.Nil(t, groups)
+		assert.Contains(t, err.Error(), "database error")
+
+		mockDB.AssertExpectations(t)
+	})
+}

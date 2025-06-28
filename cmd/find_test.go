@@ -81,6 +81,48 @@ func TestRunFind(t *testing.T) {
 	})
 }
 
+func TestRunFind_Integration(t *testing.T) {
+	t.Run("parseSize function tests", func(t *testing.T) {
+		// Test parseSize function
+		minSize, maxSize, err := parseSize("1M-10M")
+		assert.NoError(t, err)
+		assert.NotNil(t, minSize)
+		assert.NotNil(t, maxSize)
+		assert.Equal(t, int64(1024*1024), *minSize)
+		assert.Equal(t, int64(10*1024*1024), *maxSize)
+	})
+
+	t.Run("parseSize with single value", func(t *testing.T) {
+		minSize, maxSize, err := parseSize("+1M")
+		assert.NoError(t, err)
+		assert.NotNil(t, minSize)
+		assert.Nil(t, maxSize)
+		assert.Equal(t, int64(1024*1024), *minSize)
+	})
+
+	t.Run("parseModified with relative date", func(t *testing.T) {
+		after, before, err := parseModified("-30d")
+		assert.NoError(t, err)
+		assert.NotNil(t, after)
+		assert.Nil(t, before)
+	})
+
+	t.Run("parseFileType with extension", func(t *testing.T) {
+		types, err := parseFileType(".txt")
+		assert.NoError(t, err)
+		assert.Len(t, types, 1)
+		assert.Contains(t, types, ".txt")
+	})
+
+	t.Run("parseFileType with category", func(t *testing.T) {
+		types, err := parseFileType("image")
+		assert.NoError(t, err)
+		assert.True(t, len(types) > 0)
+		assert.Contains(t, types, ".jpg")
+		assert.Contains(t, types, ".png")
+	})
+}
+
 func TestParseSize(t *testing.T) {
 	tests := []struct {
 		name    string
