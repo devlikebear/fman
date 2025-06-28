@@ -5,6 +5,7 @@ package daemon
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"os"
@@ -241,10 +242,19 @@ func NewJob(path string, options *scanner.ScanOptions) *Job {
 	}
 }
 
-// generateJobID generates a unique job ID
+// generateJobID generates a unique job ID using UUID-like format
 func generateJobID() string {
-	// Use UUID-like format for better uniqueness
-	return fmt.Sprintf("job_%d_%d_%d", time.Now().UnixNano(), os.Getpid(), time.Now().UnixMicro()%1000000)
+	// Generate 16 random bytes
+	b := make([]byte, 16)
+	_, err := rand.Read(b)
+	if err != nil {
+		// Fallback to timestamp-based ID if crypto/rand fails
+		return fmt.Sprintf("job_%d_%d", time.Now().UnixNano(), os.Getpid())
+	}
+
+	// Format as UUID-like string
+	return fmt.Sprintf("job_%08x-%04x-%04x-%04x-%012x",
+		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
 // IsTerminal returns true if the job status is terminal (completed, failed, or cancelled)
