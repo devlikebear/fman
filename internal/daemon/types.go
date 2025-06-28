@@ -243,8 +243,8 @@ func NewJob(path string, options *scanner.ScanOptions) *Job {
 
 // generateJobID generates a unique job ID
 func generateJobID() string {
-	// Simple ID generation using timestamp and random component
-	return fmt.Sprintf("job_%d_%d", time.Now().UnixNano(), os.Getpid())
+	// Use UUID-like format for better uniqueness
+	return fmt.Sprintf("job_%d_%d_%d", time.Now().UnixNano(), os.Getpid(), time.Now().UnixMicro()%1000000)
 }
 
 // IsTerminal returns true if the job status is terminal (completed, failed, or cancelled)
