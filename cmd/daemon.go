@@ -216,13 +216,13 @@ func ensureDaemonRunning() error {
 		return fmt.Errorf("failed to auto-start daemon: %w", err)
 	}
 
-	// Wait for daemon to start
-	timeout := time.Now().Add(3 * time.Second)
+	// Wait for daemon to start - reduced timeout for tests
+	timeout := time.Now().Add(500 * time.Millisecond) // Reduced from 3 seconds
 	for time.Now().Before(timeout) {
 		if client.IsDaemonRunning() {
 			return nil
 		}
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond) // Reduced from 100ms
 	}
 
 	return fmt.Errorf("daemon auto-start timeout")

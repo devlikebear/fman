@@ -184,15 +184,22 @@ func TestGetPIDFromFile(t *testing.T) {
 }
 
 func TestEnsureDaemonRunning(t *testing.T) {
-	// Note: This is a simplified test since we can't easily mock the daemon.NewDaemonClient
-	// In a real implementation, we'd need dependency injection for better testability
-
 	t.Run("function exists and is callable", func(t *testing.T) {
-		// Just test that the function can be called without panicking
-		// The actual functionality would need integration testing
+		// Create a temporary config directory for testing
+		tempDir := t.TempDir()
+
+		// Set environment variable to use temp directory
+		oldHome := os.Getenv("HOME")
+		os.Setenv("HOME", tempDir)
+		defer os.Setenv("HOME", oldHome)
+
+		// Test that the function can be called without panicking
+		// In test environment, this will likely fail because no daemon is running
+		// but we set a very short timeout to avoid hanging
 		err := ensureDaemonRunning()
-		// We expect this to fail in test environment, but it shouldn't panic
+		// We expect this to fail in test environment, but it shouldn't panic or hang
 		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to auto-start daemon")
 	})
 }
 
