@@ -9,11 +9,13 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
-
+// fileSystem is the filesystem abstraction, defaults to osFs
+var fileSystem = afero.NewOsFs()
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -93,5 +95,3 @@ ollama:
 		}
 	}
 }
-
-

@@ -1,7 +1,6 @@
 package db
 
 import (
-	
 	"fmt"
 	"os"
 	"path/filepath"
@@ -22,26 +21,49 @@ type File struct {
 	FileHash   string    `db:"file_hash"`
 }
 
-var db *sqlx.DB
+// DBInterface defines the interface for database operations.
+type DBInterface interface {
+	InitDB() error
+	UpsertFile(file *File) error
+	FindFilesByName(namePattern string) ([]File, error)
+	Close() error
+}
+
+// Database implements DBInterface using sqlx.
+type Database struct {
+	db *sqlx.DB
+	dbPath string // Path to the database file
+}
+
+// NewDatabase creates a new Database instance.
+// If dbConn is nil, it will attempt to connect to the default fman.db.
+func NewDatabase(dbConn *sqlx.DB) DBInterface {
+	return &Database{db: dbConn}
+}
 
 // InitDB initializes the database connection and creates the necessary tables.
-func InitDB() error {
+func (d *Database) InitDB() error {
+	if d.db != nil { // If already initialized or mocked
+		return nil
+	}
+
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("failed to get user home directory: %w", err)
 	}
 
-	dbPath := filepath.Join(home, ".fman")
-	if err := os.MkdirAll(dbPath, os.ModePerm); err != nil {
+	dbDir := filepath.Join(home, ".fman")
+	if err := os.MkdirAll(dbDir, os.ModePerm); err != nil {
 		return fmt.Errorf("failed to create db directory: %w", err)
 	}
 
-	dbFile := filepath.Join(dbPath, "fman.db")
+	dbFile := filepath.Join(dbDir, "fman.db")
 
-	db, err = sqlx.Connect("sqlite3", dbFile)
+	dbConn, err := sqlx.Connect("sqlite3", dbFile)
 	if err != nil {
 		return fmt.Errorf("failed to connect to database: %w", err)
 	}
+	d.db = dbConn
 
 	// Create the files table if it doesn't exist.
 	schema := `
@@ -55,7 +77,7 @@ func InitDB() error {
 		file_hash TEXT
 	);
 	`
-	_, err = db.Exec(schema)
+	_, err = d.db.Exec(schema)
 	if err != nil {
 		return fmt.Errorf("failed to create table: %w", err)
 	}
@@ -64,7 +86,7 @@ func InitDB() error {
 }
 
 // UpsertFile inserts a new file record or updates an existing one based on the path.
-func UpsertFile(file *File) error {
+func (d *Database) UpsertFile(file *File) error {
 	query := `
 	INSERT INTO files (path, name, size, modified_at, file_hash, indexed_at)
 	VALUES (?, ?, ?, ?, ?, ?)
@@ -75,17 +97,25 @@ func UpsertFile(file *File) error {
 		file_hash = excluded.file_hash,
 		indexed_at = excluded.indexed_at;
 	`
-	_, err := db.Exec(query, file.Path, file.Name, file.Size, file.ModifiedAt, file.FileHash, time.Now())
+	_, err := d.db.Exec(query, file.Path, file.Name, file.Size, file.ModifiedAt, file.FileHash, time.Now())
 	return err
 }
 
 // FindFilesByName searches for files by name using a LIKE query.
-func FindFilesByName(namePattern string) ([]File, error) {
+func (d *Database) FindFilesByName(namePattern string) ([]File, error) {
 	var files []File
 	query := "SELECT * FROM files WHERE name LIKE ?"
-	err := db.Select(&files, query, "%"+namePattern+"%")
+	err := d.db.Select(&files, query, "%"+namePattern+"%")
 	if err != nil {
 		return nil, err
 	}
 	return files, nil
+}
+
+// Close closes the database connection.
+func (d *Database) Close() error {
+	if d.db != nil {
+		return d.db.Close()
+	}
+	return nil
 }

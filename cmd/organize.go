@@ -14,8 +14,14 @@ import (
 	"strings"
 
 	"github.com/devlikebear/fman/internal/ai"
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+)
+
+var (
+	NewGeminiProvider func() ai.AIProvider = ai.NewGeminiProvider
+	NewOllamaProvider func() ai.AIProvider = ai.NewOllamaProvider
 )
 
 // organizeCmd represents the organize command
@@ -38,66 +44,70 @@ shell commands to the user for approval before executing them.`,
 
 		switch providerName {
 		case "gemini":
-			provider = ai.NewGeminiProvider()
+			provider = NewGeminiProvider()
 		case "ollama":
-			provider = ai.NewOllamaProvider()
+			provider = NewOllamaProvider()
 		default:
 			return fmt.Errorf("unknown AI provider: %s. Please check your config file", providerName)
 		}
 
-		dir := args[0]
-		fmt.Printf("Getting AI suggestions to organize directory: %s (using %s)\n", dir, providerName)
-
-		var filePaths []string
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			return fmt.Errorf("failed to read directory: %w", err)
-		}
-		for _, entry := range entries {
-			if !entry.IsDir() {
-				filePaths = append(filePaths, filepath.Join(dir, entry.Name()))
-			}
-		}
-
-		if len(filePaths) == 0 {
-			fmt.Println("No files to organize in the specified directory.")
-			return nil
-		}
-
-		suggestions, err := provider.SuggestOrganization(context.Background(), filePaths)
-		if err != nil {
-			return fmt.Errorf("failed to get suggestions from AI provider: %w", err)
-		}
-
-		fmt.Println("\nAI-suggested commands:")
-		fmt.Println("------------------------")
-		fmt.Println(suggestions)
-		fmt.Println("------------------------")
-		fmt.Print("Do you want to execute these commands? (y/n): ")
-
-		reader := bufio.NewReader(os.Stdin)
-		response, err := reader.ReadString('\n')
-		if err != nil {
-			return fmt.Errorf("failed to read user input: %w", err)
-		}
-
-		if strings.ToLower(strings.TrimSpace(response)) == "y" {
-			fmt.Println("Executing commands...")
-			// We will execute the script in the context of the target directory
-			cmd := exec.Command("bash", "-c", suggestions)
-			cmd.Dir = dir // Run the command in the directory we are organizing
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-			if err := cmd.Run(); err != nil {
-				return fmt.Errorf("failed to execute suggested commands: %w", err)
-			}
-			fmt.Println("Commands executed successfully.")
-		} else {
-			fmt.Println("Organization cancelled.")
-		}
-
-		return nil
+		return runOrganize(cmd, args, fileSystem, provider)
 	},
+}
+
+func runOrganize(cmd *cobra.Command, args []string, fs afero.Fs, provider ai.AIProvider) error {
+	dir := args[0]
+	fmt.Printf("Getting AI suggestions to organize directory: %s (using %s)\n", dir, provider.String())
+
+	var filePaths []string
+	entries, err := afero.ReadDir(fs, dir)
+	if err != nil {
+		return fmt.Errorf("failed to read directory: %w", err)
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			filePaths = append(filePaths, filepath.Join(dir, entry.Name()))
+		}
+	}
+
+	if len(filePaths) == 0 {
+		fmt.Println("No files to organize in the specified directory.")
+		return nil
+	}
+
+	suggestions, err := provider.SuggestOrganization(context.Background(), filePaths)
+	if err != nil {
+		return fmt.Errorf("failed to get suggestions from AI provider: %w", err)
+	}
+
+	fmt.Println("\nAI-suggested commands:")
+	fmt.Println("------------------------")
+	fmt.Println(suggestions)
+	fmt.Println("------------------------")
+	fmt.Print("Do you want to execute these commands? (y/n): ")
+
+	reader := bufio.NewReader(os.Stdin)
+	response, err := reader.ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("failed to read user input: %w", err)
+	}
+
+	if strings.ToLower(strings.TrimSpace(response)) == "y" {
+		fmt.Println("Executing commands...")
+		// We will execute the script in the context of the target directory
+		cmd := exec.Command("bash", "-c", suggestions)
+		cmd.Dir = dir // Run the command in the directory we are organizing
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("failed to execute suggested commands: %w", err)
+		}
+		fmt.Println("Commands executed successfully.")
+	} else {
+		fmt.Println("Organization cancelled.")
+	}
+
+	return nil
 }
 
 func init() {

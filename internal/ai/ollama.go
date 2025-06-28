@@ -14,7 +14,7 @@ import (
 type OllamaProvider struct{}
 
 // NewOllamaProvider creates a new OllamaProvider.
-func NewOllamaProvider() *OllamaProvider {
+func NewOllamaProvider() AIProvider {
 	return &OllamaProvider{}
 }
 
@@ -85,4 +85,8 @@ func buildPrompt(filePaths []string) string {
 		prompt += fmt.Sprintf("- %s\n", path)
 	}
 	return prompt
+}
+
+func (p *OllamaProvider) String() string {
+	return "ollama"
 }

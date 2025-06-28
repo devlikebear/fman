@@ -10,11 +10,20 @@ import (
 )
 
 // GeminiProvider implements the AIProvider interface for Gemini.
-type GeminiProvider struct{}
+type GeminiProvider struct{
+	generativeModel GenerativeModelInterface // Field to hold the generative model, can be mocked for testing
+}
 
 // NewGeminiProvider creates a new GeminiProvider.
-func NewGeminiProvider() *GeminiProvider {
+func NewGeminiProvider() AIProvider {
 	return &GeminiProvider{}
+}
+
+var NewGenaiClient = genai.NewClient
+
+// SetGenerativeModel allows injecting a mock GenerativeModel for testing.
+func (p *GeminiProvider) SetGenerativeModel(model GenerativeModelInterface) {
+	p.generativeModel = model
 }
 
 // SuggestOrganization sends a request to the Gemini API to get organization suggestions.
@@ -28,13 +37,18 @@ func (p *GeminiProvider) SuggestOrganization(ctx context.Context, filePaths []st
 		return "", fmt.Errorf("gemini model is not set in the configuration")
 	}
 
-	client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
-	if err != nil {
-		return "", fmt.Errorf("failed to create gemini client: %w", err)
+	var model GenerativeModelInterface
+	if p.generativeModel != nil { // Use injected model for testing
+		model = p.generativeModel
+	} else {
+		client, err := NewGenaiClient(ctx, option.WithAPIKey(apiKey))
+		if err != nil {
+			return "", fmt.Errorf("failed to create gemini client: %w", err)
+		}
+		defer client.Close()
+		model = client.GenerativeModel(modelName)
 	}
-	defer client.Close()
 
-	model := client.GenerativeModel(modelName)
 	prompt := buildPrompt(filePaths)
 
 	resp, err := model.GenerateContent(ctx, genai.Text(prompt))
@@ -53,4 +67,8 @@ func (p *GeminiProvider) SuggestOrganization(ctx context.Context, filePaths []st
 	}
 
 	return "", fmt.Errorf("unexpected response format from Gemini")
+}
+
+func (p *GeminiProvider) String() string {
+	return "gemini"
 }
