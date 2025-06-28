@@ -31,6 +31,57 @@ func TestGetSkipPatterns(t *testing.T) {
 	}
 }
 
+func TestGetSkipPatternsAllOSTypes(t *testing.T) {
+	// Test that we have patterns defined for all major OS types
+	// by temporarily simulating different OS values
+
+	// We can't change runtime.GOOS during runtime, but we can test
+	// that the function handles different cases properly by checking
+	// the patterns contain expected values for current OS
+
+	patterns := GetSkipPatterns()
+
+	// All OS should have at least some patterns
+	assert.Greater(t, len(patterns), 0)
+
+	// Test that patterns are strings and not empty
+	for _, pattern := range patterns {
+		assert.NotEmpty(t, pattern, "Pattern should not be empty")
+		assert.IsType(t, "", pattern, "Pattern should be string")
+	}
+
+	// Test specific patterns based on current OS
+	currentOS := runtime.GOOS
+	switch currentOS {
+	case "darwin":
+		// macOS specific patterns
+		expectedPatterns := []string{".Trash", ".fseventsd", ".Spotlight-V100"}
+		for _, expected := range expectedPatterns {
+			assert.Contains(t, patterns, expected, "macOS should include %s", expected)
+		}
+	case "linux":
+		// Linux specific patterns
+		expectedPatterns := []string{"proc", "sys", "dev", "tmp"}
+		for _, expected := range expectedPatterns {
+			assert.Contains(t, patterns, expected, "Linux should include %s", expected)
+		}
+	case "windows":
+		// Windows specific patterns
+		expectedPatterns := []string{"$Recycle.Bin", "System Volume Information"}
+		for _, expected := range expectedPatterns {
+			assert.Contains(t, patterns, expected, "Windows should include %s", expected)
+		}
+	}
+}
+
+func TestGetSkipPatternsConsistency(t *testing.T) {
+	// Test that calling GetSkipPatterns multiple times returns consistent results
+	patterns1 := GetSkipPatterns()
+	patterns2 := GetSkipPatterns()
+
+	assert.Equal(t, patterns1, patterns2, "GetSkipPatterns should return consistent results")
+}
+
 func TestShouldSkipPath(t *testing.T) {
 	skipPatterns := []string{".Trash", "proc", "System/Library"}
 
@@ -74,11 +125,75 @@ func TestShouldSkipPath(t *testing.T) {
 			path:     "/Users/.config",
 			expected: true,
 		},
+		{
+			name:     "should skip pattern in middle of path",
+			path:     "/home/user/proc/test",
+			expected: true,
+		},
+		{
+			name:     "should skip exact pattern match",
+			path:     "proc",
+			expected: true,
+		},
+		{
+			name:     "should not skip non-matching path",
+			path:     "/home/user/documents/file.txt",
+			expected: false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := ShouldSkipPath(tt.path, skipPatterns)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestShouldSkipPathEmptyPatterns(t *testing.T) {
+	// Test with empty patterns
+	result := ShouldSkipPath("/some/path", []string{})
+	// Should still skip hidden directories at root level
+	assert.False(t, result, "Should not skip regular path with empty patterns")
+
+	// Test hidden directory with empty patterns
+	result = ShouldSkipPath("/Users/.hidden", []string{})
+	assert.True(t, result, "Should still skip hidden directories even with empty patterns")
+}
+
+func TestShouldSkipPathEdgeCases(t *testing.T) {
+	patterns := []string{"test"}
+
+	tests := []struct {
+		name     string
+		path     string
+		expected bool
+	}{
+		{
+			name:     "empty path",
+			path:     "",
+			expected: true, // Empty path should be skipped (has prefix ".")
+		},
+		{
+			name:     "root path",
+			path:     "/",
+			expected: false,
+		},
+		{
+			name:     "hidden file in deep path",
+			path:     "/very/deep/path/structure/that/goes/many/levels/.hidden",
+			expected: false,
+		},
+		{
+			name:     "pattern as basename",
+			path:     "/some/path/test",
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ShouldSkipPath(tt.path, patterns)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
