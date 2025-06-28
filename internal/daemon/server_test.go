@@ -659,15 +659,11 @@ func TestDaemonServer_parseRequestData(t *testing.T) {
 	})
 }
 
-func TestWorker_processJob(t *testing.T) {
+func TestScanWorker_processJob(t *testing.T) {
 	mockQueue := &MockQueue{}
-	server := NewDaemonServer(nil, mockQueue)
 
-	worker := &Worker{
-		id:     0,
-		server: server,
-		ctx:    context.Background(),
-	}
+	// Create a ScanWorker for testing
+	worker := NewScanWorker(0, mockQueue)
 
 	job := &Job{
 		ID:      "test-job",
@@ -677,9 +673,15 @@ func TestWorker_processJob(t *testing.T) {
 	}
 
 	// Mock queue Update calls
-	mockQueue.On("Update", mock.AnythingOfType("*daemon.Job")).Return(nil)
+	mockQueue.On("Update", mock.AnythingOfType("*daemon.Job")).Return(nil).Maybe()
+	mockQueue.On("Get", "test-job").Return(job, nil).Maybe()
 
-	worker.processJob(job)
+	// Set context for the worker
+	ctx, cancel := context.WithCancel(context.Background())
+	worker.ctx = ctx
+	defer cancel()
+
+	worker.processJobs(job)
 
 	// Verify job was updated
 	mockQueue.AssertExpectations(t)
@@ -985,14 +987,12 @@ func TestDaemonServer_AdditionalCoverage(t *testing.T) {
 	server := NewDaemonServer(config, mockQueue)
 
 	t.Run("worker struct creation", func(t *testing.T) {
-		// Test worker creation without actual job processing
-		worker := &Worker{
-			id:     1,
-			server: server,
-		}
+		// Test ScanWorker creation without actual job processing
+		worker := NewScanWorker(1, mockQueue)
 
 		assert.Equal(t, 1, worker.id)
-		assert.Equal(t, server, worker.server)
+		assert.Equal(t, mockQueue, worker.queue)
+		assert.NotNil(t, worker.scanner)
 	})
 
 	t.Run("server methods exist", func(t *testing.T) {

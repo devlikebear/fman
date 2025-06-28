@@ -16,10 +16,6 @@ import (
 	"sync"
 	"syscall"
 	"time"
-
-	"github.com/devlikebear/fman/internal/db"
-	"github.com/devlikebear/fman/internal/scanner"
-	"github.com/spf13/afero"
 )
 
 // DaemonServer implements the DaemonInterface using Unix Domain Socket
@@ -32,17 +28,9 @@ type DaemonServer struct {
 	mu         sync.RWMutex
 	ctx        context.Context
 	cancel     context.CancelFunc
-	workers    []*Worker
+	workers    []*ScanWorker
 	workerWg   sync.WaitGroup
 	shutdownCh chan struct{}
-}
-
-// Worker represents a background worker that processes jobs
-type Worker struct {
-	id     int
-	server *DaemonServer
-	ctx    context.Context
-	cancel context.CancelFunc
 }
 
 // NewDaemonServer creates a new daemon server instance
@@ -132,6 +120,13 @@ func (s *DaemonServer) Stop() error {
 
 	// Signal shutdown
 	close(s.shutdownCh)
+
+	// Stop all workers
+	for _, worker := range s.workers {
+		if worker != nil {
+			worker.Stop()
+		}
+	}
 
 	// Cancel context to stop workers
 	if s.cancel != nil {
@@ -318,18 +313,13 @@ func (s *DaemonServer) removeSocketFile() error {
 }
 
 func (s *DaemonServer) startWorkers() {
-	s.workers = make([]*Worker, s.config.MaxWorkers)
+	s.workers = make([]*ScanWorker, s.config.MaxWorkers)
 
 	for i := 0; i < s.config.MaxWorkers; i++ {
-		worker := &Worker{
-			id:     i,
-			server: s,
-		}
-		worker.ctx, worker.cancel = context.WithCancel(s.ctx)
+		worker := NewScanWorker(i, s.queue)
 		s.workers[i] = worker
 
-		s.workerWg.Add(1)
-		go worker.run(&s.workerWg)
+		worker.Start(s.ctx, &s.workerWg)
 	}
 }
 
@@ -559,62 +549,4 @@ func (s *DaemonServer) sendErrorResponse(encoder *json.Encoder, code, message st
 		},
 	}
 	encoder.Encode(resp)
-}
-
-// Worker implementation
-
-func (w *Worker) run(wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	for {
-		select {
-		case <-w.ctx.Done():
-			return
-		default:
-		}
-
-		// Get next job from queue (blocking with timeout)
-		jobCtx, cancel := context.WithTimeout(w.ctx, 5*time.Second)
-		job, err := w.server.queue.Next(jobCtx)
-		cancel()
-
-		if err != nil {
-			if w.ctx.Err() != nil {
-				return
-			}
-			continue
-		}
-
-		w.processJob(job)
-	}
-}
-
-func (w *Worker) processJob(job *Job) {
-	// Update job status to running
-	job.Status = JobStatusRunning
-	now := time.Now()
-	job.StartedAt = &now
-	w.server.queue.Update(job)
-
-	// Create file scanner
-	fs := afero.NewOsFs()
-	database := db.NewDatabase(nil)
-	scanner := scanner.NewFileScanner(fs, database)
-
-	// Execute scan
-	stats, err := scanner.ScanDirectory(w.ctx, job.Path, job.Options)
-
-	// Update job with results
-	completedAt := time.Now()
-	job.CompletedAt = &completedAt
-	job.Stats = stats
-
-	if err != nil {
-		job.Status = JobStatusFailed
-		job.Error = err.Error()
-	} else {
-		job.Status = JobStatusCompleted
-	}
-
-	w.server.queue.Update(job)
 }
