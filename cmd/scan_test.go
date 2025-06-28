@@ -185,3 +185,46 @@ func TestScanCommand_Integration(t *testing.T) {
 	assert.NoError(t, err)
 	mockDB.AssertExpectations(t)
 }
+
+func TestScanCommand_AsyncFlag(t *testing.T) {
+	// Test that async flag is properly defined
+	cmd := scanCmd
+
+	// Check if async flag exists
+	asyncFlag := cmd.Flags().Lookup("async")
+	assert.NotNil(t, asyncFlag, "async flag should be defined")
+	assert.Equal(t, "false", asyncFlag.DefValue, "async flag should default to false")
+	assert.Equal(t, "bool", asyncFlag.Value.Type(), "async flag should be boolean")
+}
+
+func TestScanCommand_FlagValidation(t *testing.T) {
+	// Test that all expected flags are present
+	cmd := scanCmd
+
+	// Check all flags
+	flags := []string{"force-sudo", "verbose", "async"}
+	for _, flagName := range flags {
+		flag := cmd.Flags().Lookup(flagName)
+		assert.NotNil(t, flag, fmt.Sprintf("flag %s should be defined", flagName))
+	}
+
+	// Check flag types
+	assert.Equal(t, "bool", cmd.Flags().Lookup("force-sudo").Value.Type())
+	assert.Equal(t, "bool", cmd.Flags().Lookup("verbose").Value.Type())
+	assert.Equal(t, "bool", cmd.Flags().Lookup("async").Value.Type())
+}
+
+func TestRunScanAsync_FunctionExists(t *testing.T) {
+	// Test that runScanAsync function can be called
+	// We can't easily test the actual async functionality without a running daemon,
+	// but we can test that the function exists and handles basic validation
+
+	cmd := &cobra.Command{}
+	cmd.Flags().Bool("verbose", false, "")
+	cmd.Flags().Bool("force-sudo", false, "")
+
+	// This will fail because no daemon is running, but it tests the function exists
+	err := runScanAsync(cmd, []string{"/test"})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to connect to daemon")
+}

@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/devlikebear/fman/internal/daemon"
 	"github.com/devlikebear/fman/internal/db"
 	"github.com/devlikebear/fman/internal/scanner"
 	"github.com/devlikebear/fman/internal/utils"
@@ -22,9 +23,18 @@ var scanCmd = &cobra.Command{
 for each file, and stores this information in the fman database. This index is later
 used by other commands like 'find' and 'organize'.
 
-The scanner automatically skips system directories and handles permission errors gracefully.`,
+The scanner automatically skips system directories and handles permission errors gracefully.
+
+Use --async flag to run the scan in the background using the daemon.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Check if async flag is set
+		async, _ := cmd.Flags().GetBool("async")
+		if async {
+			return runScanAsync(cmd, args)
+		}
+
+		// Synchronous scan (existing behavior)
 		forceSudo, _ := cmd.Flags().GetBool("force-sudo")
 
 		// If force-sudo is requested and we're not already running as root
@@ -37,6 +47,51 @@ The scanner automatically skips system directories and handles permission errors
 		dbInstance := db.NewDatabase(nil)
 		return runScan(cmd, args, fileSystem, dbInstance)
 	},
+}
+
+func runScanAsync(cmd *cobra.Command, args []string) error {
+	// Get flags
+	verbose, _ := cmd.Flags().GetBool("verbose")
+	forceSudo, _ := cmd.Flags().GetBool("force-sudo")
+
+	// Create scan options
+	options := &scanner.ScanOptions{
+		Verbose:   verbose,
+		ForceSudo: forceSudo,
+	}
+
+	// Create daemon client
+	client := daemon.NewDaemonClient(nil)
+
+	// Connect to daemon (will start daemon if not running)
+	err := client.Connect()
+	if err != nil {
+		return fmt.Errorf("failed to connect to daemon: %w", err)
+	}
+	defer client.Disconnect()
+
+	// Create scan request
+	scanRequest := &daemon.ScanRequest{
+		Path:    args[0],
+		Options: options,
+	}
+
+	// Enqueue scan job
+	job, err := client.EnqueueScan(scanRequest)
+	if err != nil {
+		return fmt.Errorf("failed to enqueue scan job: %w", err)
+	}
+
+	fmt.Printf("📋 Scan job queued successfully\n")
+	fmt.Printf("🆔 Job ID: %s\n", job.ID)
+	fmt.Printf("📁 Path: %s\n", job.Path)
+	fmt.Printf("⏰ Created: %s\n", job.CreatedAt.Format("2006-01-02 15:04:05"))
+	fmt.Printf("📊 Status: %s\n", job.Status)
+
+	fmt.Printf("\n💡 Use 'fman queue status %s' to check progress\n", job.ID)
+	fmt.Printf("💡 Use 'fman queue list' to see all jobs\n")
+
+	return nil
 }
 
 func runScan(cmd *cobra.Command, args []string, fs afero.Fs, database db.DBInterface) error {
@@ -92,4 +147,5 @@ func init() {
 	// Add flags for advanced options
 	scanCmd.Flags().Bool("force-sudo", false, "Force scanning with elevated privileges (use with caution)")
 	scanCmd.Flags().BoolP("verbose", "v", false, "Enable verbose output showing skipped paths")
+	scanCmd.Flags().Bool("async", false, "Run scan in background using daemon")
 }
