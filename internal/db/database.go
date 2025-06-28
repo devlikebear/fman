@@ -26,12 +26,13 @@ type DBInterface interface {
 	InitDB() error
 	UpsertFile(file *File) error
 	FindFilesByName(namePattern string) ([]File, error)
+	FindFilesWithHashes(searchDir string, minSize int64) ([]File, error)
 	Close() error
 }
 
 // Database implements DBInterface using sqlx.
 type Database struct {
-	db *sqlx.DB
+	db     *sqlx.DB
 	dbPath string // Path to the database file
 }
 
@@ -106,6 +107,29 @@ func (d *Database) FindFilesByName(namePattern string) ([]File, error) {
 	var files []File
 	query := "SELECT * FROM files WHERE name LIKE ?"
 	err := d.db.Select(&files, query, "%"+namePattern+"%")
+	if err != nil {
+		return nil, err
+	}
+	return files, nil
+}
+
+// FindFilesWithHashes searches for files that have hashes and meet the criteria.
+func (d *Database) FindFilesWithHashes(searchDir string, minSize int64) ([]File, error) {
+	var files []File
+	var query string
+	var args []interface{}
+
+	if searchDir != "" {
+		// Search within specific directory
+		query = "SELECT * FROM files WHERE file_hash IS NOT NULL AND file_hash != '' AND size >= ? AND path LIKE ?"
+		args = []interface{}{minSize, searchDir + "%"}
+	} else {
+		// Search all files
+		query = "SELECT * FROM files WHERE file_hash IS NOT NULL AND file_hash != '' AND size >= ?"
+		args = []interface{}{minSize}
+	}
+
+	err := d.db.Select(&files, query, args...)
 	if err != nil {
 		return nil, err
 	}

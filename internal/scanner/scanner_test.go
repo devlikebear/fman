@@ -39,6 +39,11 @@ func (m *MockDBInterface) FindFilesByName(namePattern string) ([]db.File, error)
 	return args.Get(0).([]db.File), args.Error(1)
 }
 
+func (m *MockDBInterface) FindFilesWithHashes(searchDir string, minSize int64) ([]db.File, error) {
+	args := m.Called(searchDir, minSize)
+	return args.Get(0).([]db.File), args.Error(1)
+}
+
 func TestNewFileScanner(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	mockDB := &MockDBInterface{}

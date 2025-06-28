@@ -1,6 +1,7 @@
 package db
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -152,6 +153,59 @@ func TestFindFilesByName(t *testing.T) {
 	foundFiles, err = testDB.FindFilesByName("nonexistent")
 	assert.NoError(t, err)
 	assert.Len(t, foundFiles, 0)
+}
+
+func TestFindFilesWithHashes(t *testing.T) {
+	t.Run("find files with hashes", func(t *testing.T) {
+		mockDB := &MockDB{}
+
+		// Mock files with hashes
+		files := []File{
+			{ID: 1, Path: "/file1.txt", Name: "file1.txt", Size: 2048, FileHash: "hash1"},
+			{ID: 2, Path: "/file2.txt", Name: "file2.txt", Size: 1024, FileHash: "hash2"},
+			{ID: 3, Path: "/file3.txt", Name: "file3.txt", Size: 512, FileHash: ""},
+		}
+
+		mockDB.On("FindFilesWithHashes", "", int64(1024)).Return(files[:2], nil)
+
+		result, err := mockDB.FindFilesWithHashes("", 1024)
+
+		assert.NoError(t, err)
+		assert.Len(t, result, 2)
+		assert.Equal(t, "hash1", result[0].FileHash)
+		assert.Equal(t, "hash2", result[1].FileHash)
+		mockDB.AssertExpectations(t)
+	})
+
+	t.Run("find files with hashes in specific directory", func(t *testing.T) {
+		mockDB := &MockDB{}
+
+		files := []File{
+			{ID: 1, Path: "/testdir/file1.txt", Name: "file1.txt", Size: 2048, FileHash: "hash1"},
+		}
+
+		mockDB.On("FindFilesWithHashes", "/testdir", int64(1024)).Return(files, nil)
+
+		result, err := mockDB.FindFilesWithHashes("/testdir", 1024)
+
+		assert.NoError(t, err)
+		assert.Len(t, result, 1)
+		assert.Equal(t, "/testdir/file1.txt", result[0].Path)
+		mockDB.AssertExpectations(t)
+	})
+
+	t.Run("database error", func(t *testing.T) {
+		mockDB := &MockDB{}
+
+		mockDB.On("FindFilesWithHashes", "", int64(1024)).Return([]File{}, errors.New("db error"))
+
+		result, err := mockDB.FindFilesWithHashes("", 1024)
+
+		assert.Error(t, err)
+		assert.Empty(t, result)
+		assert.Contains(t, err.Error(), "db error")
+		mockDB.AssertExpectations(t)
+	})
 }
 
 // setupTestDB initializes an in-memory SQLite database for testing.
