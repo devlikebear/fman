@@ -30,6 +30,11 @@ func (m *MockDBInterface) FindFilesWithHashes(searchDir string, minSize int64) (
 	return args.Get(0).([]db.File), args.Error(1)
 }
 
+func (m *MockDBInterface) FindFilesByAdvancedCriteria(criteria db.SearchCriteria) ([]db.File, error) {
+	args := m.Called(criteria)
+	return args.Get(0).([]db.File), args.Error(1)
+}
+
 func (m *MockDBInterface) Close() error {
 	args := m.Called()
 	return args.Error(0)

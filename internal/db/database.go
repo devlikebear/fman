@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -21,12 +22,24 @@ type File struct {
 	FileHash   string    `db:"file_hash"`
 }
 
+// SearchCriteria represents advanced search criteria for files.
+type SearchCriteria struct {
+	NamePattern    string     // File name pattern (LIKE query)
+	MinSize        *int64     // Minimum file size in bytes
+	MaxSize        *int64     // Maximum file size in bytes
+	ModifiedAfter  *time.Time // Files modified after this date
+	ModifiedBefore *time.Time // Files modified before this date
+	SearchDir      string     // Directory to search within
+	FileTypes      []string   // File extensions to include (e.g., ".jpg", ".png")
+}
+
 // DBInterface defines the interface for database operations.
 type DBInterface interface {
 	InitDB() error
 	UpsertFile(file *File) error
 	FindFilesByName(namePattern string) ([]File, error)
 	FindFilesWithHashes(searchDir string, minSize int64) ([]File, error)
+	FindFilesByAdvancedCriteria(criteria SearchCriteria) ([]File, error)
 	Close() error
 }
 
@@ -128,6 +141,72 @@ func (d *Database) FindFilesWithHashes(searchDir string, minSize int64) ([]File,
 		query = "SELECT * FROM files WHERE file_hash IS NOT NULL AND file_hash != '' AND size >= ?"
 		args = []interface{}{minSize}
 	}
+
+	err := d.db.Select(&files, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	return files, nil
+}
+
+// FindFilesByAdvancedCriteria searches for files using advanced criteria.
+func (d *Database) FindFilesByAdvancedCriteria(criteria SearchCriteria) ([]File, error) {
+	var files []File
+	var conditions []string
+	var args []interface{}
+
+	// Base query
+	query := "SELECT * FROM files WHERE 1=1"
+
+	// Add name pattern condition
+	if criteria.NamePattern != "" {
+		conditions = append(conditions, "name LIKE ?")
+		args = append(args, "%"+criteria.NamePattern+"%")
+	}
+
+	// Add size conditions
+	if criteria.MinSize != nil {
+		conditions = append(conditions, "size >= ?")
+		args = append(args, *criteria.MinSize)
+	}
+	if criteria.MaxSize != nil {
+		conditions = append(conditions, "size <= ?")
+		args = append(args, *criteria.MaxSize)
+	}
+
+	// Add modified date conditions
+	if criteria.ModifiedAfter != nil {
+		conditions = append(conditions, "modified_at > ?")
+		args = append(args, criteria.ModifiedAfter.Format(time.RFC3339))
+	}
+	if criteria.ModifiedBefore != nil {
+		conditions = append(conditions, "modified_at < ?")
+		args = append(args, criteria.ModifiedBefore.Format(time.RFC3339))
+	}
+
+	// Add directory condition
+	if criteria.SearchDir != "" {
+		conditions = append(conditions, "path LIKE ?")
+		args = append(args, criteria.SearchDir+"%")
+	}
+
+	// Add file type conditions
+	if len(criteria.FileTypes) > 0 {
+		var typeConditions []string
+		for _, ext := range criteria.FileTypes {
+			typeConditions = append(typeConditions, "name LIKE ?")
+			args = append(args, "%"+ext)
+		}
+		conditions = append(conditions, "("+strings.Join(typeConditions, " OR ")+")")
+	}
+
+	// Combine all conditions
+	if len(conditions) > 0 {
+		query += " AND " + strings.Join(conditions, " AND ")
+	}
+
+	// Add ordering
+	query += " ORDER BY modified_at DESC"
 
 	err := d.db.Select(&files, query, args...)
 	if err != nil {

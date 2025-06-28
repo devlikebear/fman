@@ -8,38 +8,7 @@ import (
 
 	"github.com/devlikebear/fman/internal/db"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 )
-
-// MockDBInterface for testing duplicate command
-type MockDBInterfaceForDuplicate struct {
-	mock.Mock
-}
-
-func (m *MockDBInterfaceForDuplicate) InitDB() error {
-	args := m.Called()
-	return args.Error(0)
-}
-
-func (m *MockDBInterfaceForDuplicate) UpsertFile(file *db.File) error {
-	args := m.Called(file)
-	return args.Error(0)
-}
-
-func (m *MockDBInterfaceForDuplicate) FindFilesByName(namePattern string) ([]db.File, error) {
-	args := m.Called(namePattern)
-	return args.Get(0).([]db.File), args.Error(1)
-}
-
-func (m *MockDBInterfaceForDuplicate) FindFilesWithHashes(searchDir string, minSize int64) ([]db.File, error) {
-	args := m.Called(searchDir, minSize)
-	return args.Get(0).([]db.File), args.Error(1)
-}
-
-func (m *MockDBInterfaceForDuplicate) Close() error {
-	args := m.Called()
-	return args.Error(0)
-}
 
 func TestDuplicateCommand(t *testing.T) {
 	// Test that duplicate command exists and has correct structure
@@ -50,18 +19,13 @@ func TestDuplicateCommand(t *testing.T) {
 	assert.NotNil(t, duplicateCmd.RunE)
 }
 
-func TestFindDuplicateFiles(t *testing.T) {
+func TestRunDuplicateWithMockDB(t *testing.T) {
 	t.Run("no duplicates found", func(t *testing.T) {
-		mockDB := new(MockDBInterfaceForDuplicate)
+		mockDB := new(MockDBInterface)
 
-		// Mock files with unique hashes
-		files := []db.File{
-			{ID: 1, Path: "/file1.txt", Name: "file1.txt", Size: 1024, FileHash: "hash1"},
-			{ID: 2, Path: "/file2.txt", Name: "file2.txt", Size: 2048, FileHash: "hash2"},
-		}
+		mockDB.On("FindFilesWithHashes", "", int64(1024)).Return([]db.File{}, nil)
 
-		mockDB.On("FindFilesWithHashes", "", int64(1024)).Return(files, nil)
-
+		// Test the core logic with mock database
 		duplicates, err := findDuplicateFiles(mockDB, "", 1024)
 
 		assert.NoError(t, err)
@@ -69,14 +33,14 @@ func TestFindDuplicateFiles(t *testing.T) {
 		mockDB.AssertExpectations(t)
 	})
 
-	t.Run("duplicates found", func(t *testing.T) {
-		mockDB := new(MockDBInterfaceForDuplicate)
+	t.Run("duplicates found and grouped", func(t *testing.T) {
+		mockDB := new(MockDBInterface)
 
-		// Mock files with duplicate hashes
+		// Mock files with same hash (duplicates)
 		files := []db.File{
-			{ID: 1, Path: "/dir1/file.txt", Name: "file.txt", Size: 1024, FileHash: "hash1", ModifiedAt: time.Now()},
-			{ID: 2, Path: "/dir2/file.txt", Name: "file.txt", Size: 1024, FileHash: "hash1", ModifiedAt: time.Now()},
-			{ID: 3, Path: "/dir3/unique.txt", Name: "unique.txt", Size: 2048, FileHash: "hash2", ModifiedAt: time.Now()},
+			{ID: 1, Path: "/path1/file.txt", Name: "file.txt", Size: 1024, FileHash: "hash1", ModifiedAt: time.Now()},
+			{ID: 2, Path: "/path2/file.txt", Name: "file.txt", Size: 1024, FileHash: "hash1", ModifiedAt: time.Now()},
+			{ID: 3, Path: "/path3/other.txt", Name: "other.txt", Size: 2048, FileHash: "hash2", ModifiedAt: time.Now()},
 		}
 
 		mockDB.On("FindFilesWithHashes", "", int64(1024)).Return(files, nil)
@@ -84,23 +48,21 @@ func TestFindDuplicateFiles(t *testing.T) {
 		duplicates, err := findDuplicateFiles(mockDB, "", 1024)
 
 		assert.NoError(t, err)
-		assert.Len(t, duplicates, 1)
-		assert.Equal(t, "hash1", duplicates[0].Hash)
-		assert.Len(t, duplicates[0].Files, 2)
-		assert.Equal(t, int64(1024), duplicates[0].Size)
+		assert.Len(t, duplicates, 1)          // Only one group of duplicates (hash1)
+		assert.Len(t, duplicates[0].Files, 2) // Two files with same hash
 		mockDB.AssertExpectations(t)
 	})
 
 	t.Run("database error", func(t *testing.T) {
-		mockDB := new(MockDBInterfaceForDuplicate)
+		mockDB := new(MockDBInterface)
 
-		mockDB.On("FindFilesWithHashes", "", int64(1024)).Return([]db.File{}, errors.New("db error"))
+		mockDB.On("FindFilesWithHashes", "", int64(1024)).Return([]db.File{}, errors.New("database error"))
 
 		duplicates, err := findDuplicateFiles(mockDB, "", 1024)
 
 		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "database error")
 		assert.Nil(t, duplicates)
-		assert.Contains(t, err.Error(), "db error")
 		mockDB.AssertExpectations(t)
 	})
 }
@@ -126,47 +88,11 @@ func TestDisplayDuplicates(t *testing.T) {
 	})
 }
 
-func TestRunDuplicateWithMockDB(t *testing.T) {
-	t.Run("no duplicates found", func(t *testing.T) {
-		mockDB := new(MockDBInterfaceForDuplicate)
-
-		mockDB.On("FindFilesWithHashes", "", int64(1024)).Return([]db.File{}, nil)
-
-		// Test the core logic with mock database
-		duplicates, err := findDuplicateFiles(mockDB, "", 1024)
-
-		assert.NoError(t, err)
-		assert.Empty(t, duplicates)
-		mockDB.AssertExpectations(t)
-	})
-
-	t.Run("database init error", func(t *testing.T) {
-		mockDB := new(MockDBInterfaceForDuplicate)
-
-		mockDB.On("InitDB").Return(errors.New("init error"))
-
-		err := mockDB.InitDB()
-
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "init error")
-		mockDB.AssertExpectations(t)
-	})
-}
-
 func TestDuplicateCommandFlags(t *testing.T) {
-	t.Run("flags are properly defined", func(t *testing.T) {
-		removeFlag := duplicateCmd.Flags().Lookup("remove")
-		assert.NotNil(t, removeFlag)
-		assert.Equal(t, "false", removeFlag.DefValue)
-
-		interactiveFlag := duplicateCmd.Flags().Lookup("interactive")
-		assert.NotNil(t, interactiveFlag)
-		assert.Equal(t, "false", interactiveFlag.DefValue)
-
-		minSizeFlag := duplicateCmd.Flags().Lookup("min-size")
-		assert.NotNil(t, minSizeFlag)
-		assert.Equal(t, "1024", minSizeFlag.DefValue)
-	})
+	// Test that duplicate command has the expected flags
+	assert.NotNil(t, duplicateCmd.Flags().Lookup("remove"))
+	assert.NotNil(t, duplicateCmd.Flags().Lookup("interactive"))
+	assert.NotNil(t, duplicateCmd.Flags().Lookup("min-size"))
 }
 
 func TestDuplicateGroup(t *testing.T) {

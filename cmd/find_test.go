@@ -1,70 +1,301 @@
 package cmd
 
 import (
-	"fmt"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/devlikebear/fman/internal/db"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 )
 
 func TestFindCommand(t *testing.T) {
-	// Create a new mock DB instance for each test
-	mockDB := new(MockDBInterface)
+	// Test that find command exists and has correct structure
+	assert.NotNil(t, findCmd)
+	assert.Equal(t, "find [name-pattern]", findCmd.Use)
+	assert.Contains(t, findCmd.Short, "advanced search")
+	assert.Contains(t, findCmd.Long, "criteria")
+	assert.NotNil(t, findCmd.RunE)
+}
 
-	// Expect InitDB to be called and succeed
-	mockDB.On("InitDB").Return(nil).Once()
-	mockDB.On("Close").Return(nil).Once()
+func TestRunFind(t *testing.T) {
+	t.Run("successful search with name pattern", func(t *testing.T) {
+		mockDB := new(MockDBInterface)
 
-	// Prepare mock data for FindFilesByName
-	mockFiles := []db.File{
+		// Mock files
+		files := []db.File{
+			{ID: 1, Path: "/test/file1.txt", Name: "file1.txt", Size: 1024, ModifiedAt: time.Now()},
+			{ID: 2, Path: "/test/file2.txt", Name: "file2.txt", Size: 2048, ModifiedAt: time.Now()},
+		}
+
+		mockDB.On("InitDB").Return(nil)
+		mockDB.On("Close").Return(nil)
+		mockDB.On("FindFilesByAdvancedCriteria", mock.MatchedBy(func(criteria db.SearchCriteria) bool {
+			return criteria.NamePattern == "test"
+		})).Return(files, nil)
+
+		err := runFind(findCmd, []string{"test"}, mockDB)
+
+		assert.NoError(t, err)
+		mockDB.AssertExpectations(t)
+	})
+
+	t.Run("no files found", func(t *testing.T) {
+		mockDB := new(MockDBInterface)
+
+		mockDB.On("InitDB").Return(nil)
+		mockDB.On("Close").Return(nil)
+		mockDB.On("FindFilesByAdvancedCriteria", mock.AnythingOfType("db.SearchCriteria")).Return([]db.File{}, nil)
+
+		err := runFind(findCmd, []string{"nonexistent"}, mockDB)
+
+		assert.NoError(t, err)
+		mockDB.AssertExpectations(t)
+	})
+
+	t.Run("database init error", func(t *testing.T) {
+		mockDB := new(MockDBInterface)
+
+		mockDB.On("InitDB").Return(errors.New("init error"))
+
+		err := runFind(findCmd, []string{"test"}, mockDB)
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to initialize database")
+		mockDB.AssertExpectations(t)
+	})
+
+	t.Run("database search error", func(t *testing.T) {
+		mockDB := new(MockDBInterface)
+
+		mockDB.On("InitDB").Return(nil)
+		mockDB.On("Close").Return(nil)
+		mockDB.On("FindFilesByAdvancedCriteria", mock.AnythingOfType("db.SearchCriteria")).Return([]db.File{}, errors.New("search error"))
+
+		err := runFind(findCmd, []string{"test"}, mockDB)
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to find files")
+		mockDB.AssertExpectations(t)
+	})
+}
+
+func TestParseSize(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantMin *int64
+		wantMax *int64
+		wantErr bool
+	}{
 		{
-			Path:       "/path/to/document.pdf",
-			Name:       "document.pdf",
-			Size:       1024,
-			ModifiedAt: time.Date(2023, 1, 1, 10, 0, 0, 0, time.UTC),
-			FileHash:   "hash1",
+			name:    "size with + prefix",
+			input:   "+100M",
+			wantMin: int64Ptr(100 * 1024 * 1024),
+			wantMax: nil,
+			wantErr: false,
 		},
 		{
-			Path:       "/another/report.docx",
-			Name:       "report.docx",
-			Size:       2048,
-			ModifiedAt: time.Date(2023, 2, 15, 11, 30, 0, 0, time.UTC),
-			FileHash:   "hash2",
+			name:    "size with - prefix",
+			input:   "-1G",
+			wantMin: int64Ptr(0),
+			wantMax: int64Ptr(1024 * 1024 * 1024),
+			wantErr: false,
+		},
+		{
+			name:    "size range",
+			input:   "1M-10M",
+			wantMin: int64Ptr(1024 * 1024),
+			wantMax: int64Ptr(10 * 1024 * 1024),
+			wantErr: false,
+		},
+		{
+			name:    "exact size",
+			input:   "500K",
+			wantMin: int64Ptr(500 * 1024),
+			wantMax: int64Ptr(500 * 1024),
+			wantErr: false,
+		},
+		{
+			name:    "invalid format",
+			input:   "invalid",
+			wantMin: nil,
+			wantMax: nil,
+			wantErr: true,
 		},
 	}
-	mockDB.On("FindFilesByName", "doc").Return(mockFiles, nil).Once()
 
-	// Execute the command
-	err := runFind(nil, []string{"doc"}, mockDB)
-	assert.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotMin, gotMax, err := parseSize(tt.input)
 
-	// Assert that mock expectations were met
-	mockDB.AssertExpectations(t)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+
+			assert.NoError(t, err)
+			assert.Equal(t, tt.wantMin, gotMin)
+			assert.Equal(t, tt.wantMax, gotMax)
+		})
+	}
 }
 
-func TestFindCommand_NoFilesFound(t *testing.T) {
-	mockDB := new(MockDBInterface)
+func TestParseSingleSize(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected int64
+		wantErr  bool
+	}{
+		{"bytes", "100", 100, false},
+		{"kilobytes", "100K", 100 * 1024, false},
+		{"megabytes", "100M", 100 * 1024 * 1024, false},
+		{"gigabytes", "1G", 1024 * 1024 * 1024, false},
+		{"decimal", "1.5M", int64(1.5 * 1024 * 1024), false},
+		{"invalid format", "100X", 0, true},
+		{"empty", "", 0, true},
+	}
 
-	mockDB.On("InitDB").Return(nil).Once()
-	mockDB.On("Close").Return(nil).Once()
-	mockDB.On("FindFilesByName", "nonexistent").Return([]db.File{}, nil).Once()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := parseSingleSize(tt.input)
 
-	err := runFind(nil, []string{"nonexistent"}, mockDB)
-	assert.NoError(t, err)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
 
-	mockDB.AssertExpectations(t)
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
 }
 
-func TestFindCommand_InitDBError(t *testing.T) {
-	mockDB := new(MockDBInterface)
+func TestParseModified(t *testing.T) {
+	now := time.Now()
 
-	mockDB.On("InitDB").Return(fmt.Errorf("db init error")).Once()
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+	}{
+		{"relative newer", "-30d", false},
+		{"relative older", "+7d", false},
+		{"absolute date", "2024-01-01", false},
+		{"invalid relative", "-30x", true},
+		{"invalid date", "invalid-date", true},
+	}
 
-	err := runFind(nil, []string{"test"}, mockDB)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to initialize database")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			after, before, err := parseModified(tt.input)
 
-	mockDB.AssertExpectations(t)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+
+			assert.NoError(t, err)
+
+			// Verify that at least one of after/before is set
+			assert.True(t, after != nil || before != nil)
+
+			// For relative dates, verify they're reasonable
+			if tt.input == "-30d" {
+				assert.NotNil(t, after)
+				assert.True(t, after.Before(now))
+			}
+			if tt.input == "+7d" {
+				assert.NotNil(t, before)
+				assert.True(t, before.Before(now))
+			}
+		})
+	}
+}
+
+func TestParseRelativeDuration(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected time.Duration
+		wantErr  bool
+	}{
+		{"days", "30d", 30 * 24 * time.Hour, false},
+		{"weeks", "2w", 2 * 7 * 24 * time.Hour, false},
+		{"months", "1m", 30 * 24 * time.Hour, false},
+		{"years", "1y", 365 * 24 * time.Hour, false},
+		{"invalid unit", "30x", 0, true},
+		{"invalid format", "invalid", 0, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := parseRelativeDuration(tt.input)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestParseFileType(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []string
+		wantErr  bool
+	}{
+		{"image type", "image", []string{".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".webp", ".svg"}, false},
+		{"video type", "video", []string{".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".m4v"}, false},
+		{"specific extension with dot", ".pdf", []string{".pdf"}, false},
+		{"specific extension without dot", "pdf", []string{".pdf"}, false},
+		{"document type", "document", []string{".pdf", ".doc", ".docx", ".txt", ".rtf", ".odt", ".pages"}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := parseFileType(tt.input)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestFormatSize(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    int64
+		expected string
+	}{
+		{"bytes", 512, "512 B"},
+		{"kilobytes", 1536, "1.5 KB"},
+		{"megabytes", 2097152, "2.0 MB"},
+		{"gigabytes", 1073741824, "1.0 GB"},
+		{"zero", 0, "0 B"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := formatSize(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// Helper function to create int64 pointer
+func int64Ptr(i int64) *int64 {
+	return &i
 }

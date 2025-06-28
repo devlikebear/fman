@@ -208,6 +208,161 @@ func TestFindFilesWithHashes(t *testing.T) {
 	})
 }
 
+func TestFindFilesByAdvancedCriteria(t *testing.T) {
+	t.Run("search by name pattern", func(t *testing.T) {
+		mockDB := &MockDB{}
+
+		files := []File{
+			{ID: 1, Path: "/test/file1.txt", Name: "file1.txt", Size: 1024},
+			{ID: 2, Path: "/test/file2.txt", Name: "file2.txt", Size: 2048},
+		}
+
+		criteria := SearchCriteria{
+			NamePattern: "file",
+		}
+
+		mockDB.On("FindFilesByAdvancedCriteria", criteria).Return(files, nil)
+
+		result, err := mockDB.FindFilesByAdvancedCriteria(criteria)
+
+		assert.NoError(t, err)
+		assert.Len(t, result, 2)
+		assert.Equal(t, "file1.txt", result[0].Name)
+		mockDB.AssertExpectations(t)
+	})
+
+	t.Run("search by size range", func(t *testing.T) {
+		mockDB := &MockDB{}
+
+		files := []File{
+			{ID: 1, Path: "/test/large.txt", Name: "large.txt", Size: 2048},
+		}
+
+		minSize := int64(1024)
+		maxSize := int64(4096)
+		criteria := SearchCriteria{
+			MinSize: &minSize,
+			MaxSize: &maxSize,
+		}
+
+		mockDB.On("FindFilesByAdvancedCriteria", criteria).Return(files, nil)
+
+		result, err := mockDB.FindFilesByAdvancedCriteria(criteria)
+
+		assert.NoError(t, err)
+		assert.Len(t, result, 1)
+		assert.Equal(t, "large.txt", result[0].Name)
+		mockDB.AssertExpectations(t)
+	})
+
+	t.Run("search by modified date", func(t *testing.T) {
+		mockDB := &MockDB{}
+
+		now := time.Now()
+		files := []File{
+			{ID: 1, Path: "/test/recent.txt", Name: "recent.txt", Size: 1024, ModifiedAt: now},
+		}
+
+		after := now.Add(-24 * time.Hour)
+		criteria := SearchCriteria{
+			ModifiedAfter: &after,
+		}
+
+		mockDB.On("FindFilesByAdvancedCriteria", criteria).Return(files, nil)
+
+		result, err := mockDB.FindFilesByAdvancedCriteria(criteria)
+
+		assert.NoError(t, err)
+		assert.Len(t, result, 1)
+		assert.Equal(t, "recent.txt", result[0].Name)
+		mockDB.AssertExpectations(t)
+	})
+
+	t.Run("search by file types", func(t *testing.T) {
+		mockDB := &MockDB{}
+
+		files := []File{
+			{ID: 1, Path: "/test/image.jpg", Name: "image.jpg", Size: 1024},
+			{ID: 2, Path: "/test/photo.png", Name: "photo.png", Size: 2048},
+		}
+
+		criteria := SearchCriteria{
+			FileTypes: []string{".jpg", ".png"},
+		}
+
+		mockDB.On("FindFilesByAdvancedCriteria", criteria).Return(files, nil)
+
+		result, err := mockDB.FindFilesByAdvancedCriteria(criteria)
+
+		assert.NoError(t, err)
+		assert.Len(t, result, 2)
+		mockDB.AssertExpectations(t)
+	})
+
+	t.Run("search in specific directory", func(t *testing.T) {
+		mockDB := &MockDB{}
+
+		files := []File{
+			{ID: 1, Path: "/home/user/doc.txt", Name: "doc.txt", Size: 1024},
+		}
+
+		criteria := SearchCriteria{
+			SearchDir: "/home/user",
+		}
+
+		mockDB.On("FindFilesByAdvancedCriteria", criteria).Return(files, nil)
+
+		result, err := mockDB.FindFilesByAdvancedCriteria(criteria)
+
+		assert.NoError(t, err)
+		assert.Len(t, result, 1)
+		assert.Equal(t, "/home/user/doc.txt", result[0].Path)
+		mockDB.AssertExpectations(t)
+	})
+
+	t.Run("complex search criteria", func(t *testing.T) {
+		mockDB := &MockDB{}
+
+		files := []File{
+			{ID: 1, Path: "/docs/report.pdf", Name: "report.pdf", Size: 5120},
+		}
+
+		minSize := int64(1024)
+		criteria := SearchCriteria{
+			NamePattern: "report",
+			MinSize:     &minSize,
+			SearchDir:   "/docs",
+			FileTypes:   []string{".pdf"},
+		}
+
+		mockDB.On("FindFilesByAdvancedCriteria", criteria).Return(files, nil)
+
+		result, err := mockDB.FindFilesByAdvancedCriteria(criteria)
+
+		assert.NoError(t, err)
+		assert.Len(t, result, 1)
+		assert.Equal(t, "report.pdf", result[0].Name)
+		mockDB.AssertExpectations(t)
+	})
+
+	t.Run("database error", func(t *testing.T) {
+		mockDB := &MockDB{}
+
+		criteria := SearchCriteria{
+			NamePattern: "test",
+		}
+
+		mockDB.On("FindFilesByAdvancedCriteria", criteria).Return([]File{}, errors.New("database error"))
+
+		result, err := mockDB.FindFilesByAdvancedCriteria(criteria)
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "database error")
+		assert.Empty(t, result)
+		mockDB.AssertExpectations(t)
+	})
+}
+
 // setupTestDB initializes an in-memory SQLite database for testing.
 func setupTestDB(t *testing.T) DBInterface {
 	// Use a unique in-memory database for each test function
