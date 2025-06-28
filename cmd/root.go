@@ -1,6 +1,5 @@
 /*
 Copyright © 2025 changheonshin
-
 */
 package cmd
 
@@ -24,6 +23,14 @@ var rootCmd = &cobra.Command{
 	Long: `fman (File Manager) is a command-line interface (CLI) tool developed in Go.
 It helps you organize and manage local files intelligently, utilizing AI to suggest
 and perform file operations.`,
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		// Auto-start daemon for commands that need it (except daemon commands themselves)
+		if cmd.Name() != "daemon" && cmd.Parent() != nil && cmd.Parent().Name() != "daemon" {
+			// Silently try to ensure daemon is running
+			// We don't want to fail the command if daemon auto-start fails
+			_ = ensureDaemonRunning()
+		}
+	},
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
