@@ -34,8 +34,8 @@ func NewDaemonClient(config *DaemonConfig) *DaemonClient {
 
 	return &DaemonClient{
 		config:     config,
-		timeout:    30 * time.Second,
-		retryCount: 3,
+		timeout:    5 * time.Second, // 기본 타임아웃을 5초로 단축
+		retryCount: 2,               // 재시도 횟수 감소
 	}
 }
 
@@ -70,16 +70,17 @@ func (c *DaemonClient) Connect() error {
 
 		// If first attempt fails, try to start daemon
 		if i == 0 && !c.IsDaemonRunning() {
-			if startErr := c.StartDaemon(); startErr != nil {
+			// 데몬 시작을 시도하되, 빠른 실패를 위해 더 짧은 타임아웃 사용
+			startErr := c.startDaemonWithTimeout(1 * time.Second)
+			if startErr != nil {
 				return fmt.Errorf("failed to start daemon: %w", startErr)
 			}
-			// Wait a bit for daemon to start
-			time.Sleep(2 * time.Second)
 			continue
 		}
 
 		if i < c.retryCount {
-			time.Sleep(time.Duration(i+1) * time.Second)
+			// 더 짧은 대기 시간으로 CPU 사용량 감소
+			time.Sleep(time.Duration(500) * time.Millisecond)
 		}
 	}
 
@@ -205,8 +206,35 @@ func (c *DaemonClient) StartDaemon() error {
 		return fmt.Errorf("failed to start daemon process: %w", err)
 	}
 
-	// Wait for daemon to be ready
-	return c.waitForDaemon(10 * time.Second)
+	// Wait for daemon to be ready (더 짧은 타임아웃)
+	return c.waitForDaemon(3 * time.Second)
+}
+
+// startDaemonWithTimeout starts daemon with custom timeout
+func (c *DaemonClient) startDaemonWithTimeout(timeout time.Duration) error {
+	if c.IsDaemonRunning() {
+		return nil
+	}
+
+	// Get daemon executable path
+	execPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("failed to get executable path: %w", err)
+	}
+
+	// Start daemon process with timeout context
+	cmd := exec.Command(execPath, "daemon", "start")
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	cmd.Stdin = nil
+
+	// Start daemon process
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start daemon process: %w", err)
+	}
+
+	// Wait for daemon to be ready with custom timeout
+	return c.waitForDaemon(timeout)
 }
 
 // StopDaemon stops the daemon
@@ -487,15 +515,29 @@ func (c *DaemonClient) receiveMessage() (*Message, error) {
 func (c *DaemonClient) waitForDaemon(timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 
+	// 처음에는 더 자주 확인하고, 점진적으로 간격을 늘려서 CPU 사용량 감소
+	checkInterval := 100 * time.Millisecond
+	maxInterval := 1 * time.Second
+
 	for time.Now().Before(deadline) {
 		if c.IsDaemonRunning() {
-			// Try to connect to verify daemon is ready
-			if err := c.Connect(); err == nil {
-				c.Disconnect() // Close test connection
+			// Try to connect to verify daemon is ready (재귀 호출 방지)
+			socketPath := c.getSocketPath()
+			conn, err := net.DialTimeout("unix", socketPath, c.timeout)
+			if err == nil {
+				conn.Close() // Close test connection immediately
 				return nil
 			}
 		}
-		time.Sleep(500 * time.Millisecond)
+
+		// 점진적으로 대기 시간 증가하여 CPU 부하 감소
+		time.Sleep(checkInterval)
+		if checkInterval < maxInterval {
+			checkInterval = checkInterval * 2
+			if checkInterval > maxInterval {
+				checkInterval = maxInterval
+			}
+		}
 	}
 
 	return fmt.Errorf("daemon did not start within %v", timeout)

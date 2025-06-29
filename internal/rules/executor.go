@@ -462,3 +462,18 @@ func (ex *Executor) askConfirmation(action Action, file db.File) bool {
 
 	return false // Default to no
 }
+
+// GetExecutorSettings returns the current executor settings for testing
+func (ex *Executor) GetExecutorSettings() (bool, bool, bool) {
+	return ex.dryRun, ex.verbose, ex.confirm
+}
+
+// ValidateActionType checks if an action type is valid
+func ValidateActionType(actionType ActionType) bool {
+	switch actionType {
+	case ActionMove, ActionCopy, ActionDelete, ActionRename, ActionLink:
+		return true
+	default:
+		return false
+	}
+}

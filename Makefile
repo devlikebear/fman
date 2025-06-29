@@ -15,10 +15,9 @@ run:
 	@$(BUILD_DIR)/$(APP_NAME) $(ARGS)
 
 test:
-	@echo "Running tests..."
-	@go test ./... -v
+	@echo "Running tests with coverage..."
+	@go test ./... -v -coverprofile=coverage.out -p=1
 	@echo "Checking test coverage..."
-	@go test -coverprofile=coverage.out ./...
 	@go tool cover -func=coverage.out
 
 clean:

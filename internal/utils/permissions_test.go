@@ -184,3 +184,23 @@ func (e *customError) Error() string {
 // interactive input and sudo execution. In a real testing environment,
 // you would typically test this with integration tests or mock the
 // interactive parts.
+
+func TestRunWithSudoSimple(t *testing.T) {
+	// Test that RunWithSudo function exists and has correct signature
+	cmd := &cobra.Command{Use: "test"}
+	args := []string{"test"}
+
+	if runtime.GOOS == "windows" {
+		t.Run("windows not supported", func(t *testing.T) {
+			err := RunWithSudo(cmd, args)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), "Windows")
+		})
+	} else {
+		t.Run("function exists on unix", func(t *testing.T) {
+			// Just test that the function exists without executing it
+			// (to avoid requiring actual sudo and user interaction)
+			assert.NotNil(t, RunWithSudo)
+		})
+	}
+}

@@ -10,6 +10,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
+	"time"
 
 	"github.com/devlikebear/fman/internal/db"
 	"github.com/devlikebear/fman/internal/utils"
@@ -26,8 +28,10 @@ type ScanStats struct {
 
 // ScanOptions contains options for scanning
 type ScanOptions struct {
-	Verbose   bool
-	ForceSudo bool
+	Verbose       bool
+	ForceSudo     bool
+	ThrottleDelay time.Duration // 파일 간 처리 지연시간
+	MaxFileSize   int64         // 해시 계산 최대 파일 크기 (바이트)
 }
 
 // ScannerInterface defines the interface for file scanning operations
@@ -105,24 +109,53 @@ func (s *FileScanner) ScanDirectory(ctx context.Context, rootDir string, options
 
 		// Process files
 		if !info.IsDir() {
+			// CPU 사용량 제어를 위한 주기적인 지연
+			if options.ThrottleDelay > 0 && stats.FilesIndexed%100 == 0 {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(options.ThrottleDelay):
+				}
+			}
+
+			// 메모리 사용량 모니터링 및 가비지 컬렉션
+			if stats.FilesIndexed%1000 == 0 {
+				var m runtime.MemStats
+				runtime.ReadMemStats(&m)
+				if m.Alloc > 100*1024*1024 { // 100MB 초과시 GC 강제 실행
+					runtime.GC()
+				}
+			}
+
 			if options.Verbose {
 				fmt.Printf("📁 Indexing: %s\n", path)
 			} else {
 				fmt.Printf("Indexing: %s\n", path)
 			}
 
-			hash, err := s.calculateFileHash(path)
-			if err != nil {
-				// Log the error but continue scanning other files
-				if utils.IsPermissionError(err) {
-					stats.PermissionErrors++
-					if options.Verbose {
-						fmt.Printf("⚠️  Permission denied for file %s, skipping\n", path)
-					}
-				} else {
-					fmt.Fprintf(os.Stderr, "Could not hash file %s: %v\n", path, err)
+			// 파일 크기 확인 후 해시 계산
+			var hash string
+			if options.MaxFileSize > 0 && info.Size() > options.MaxFileSize {
+				// 큰 파일은 해시 계산 건너뛰기
+				hash = "large_file_skipped"
+				if options.Verbose {
+					fmt.Printf("⏭️  File too large for hashing: %s (%d bytes)\n", path, info.Size())
 				}
-				return nil
+			} else {
+				var err error
+				hash, err = s.calculateFileHash(path)
+				if err != nil {
+					// Log the error but continue scanning other files
+					if utils.IsPermissionError(err) {
+						stats.PermissionErrors++
+						if options.Verbose {
+							fmt.Printf("⚠️  Permission denied for file %s, skipping\n", path)
+						}
+					} else {
+						fmt.Fprintf(os.Stderr, "Could not hash file %s: %v\n", path, err)
+					}
+					return nil
+				}
 			}
 
 			file := &db.File{
@@ -149,7 +182,7 @@ func (s *FileScanner) ScanDirectory(ctx context.Context, rootDir string, options
 	return stats, nil
 }
 
-// calculateFileHash calculates the SHA-256 hash of a file
+// calculateFileHash calculates the SHA-256 hash of a file with optimized reading
 func (s *FileScanner) calculateFileHash(filePath string) (string, error) {
 	file, err := s.fs.Open(filePath)
 	if err != nil {
@@ -158,8 +191,23 @@ func (s *FileScanner) calculateFileHash(filePath string) (string, error) {
 	defer file.Close()
 
 	hash := sha256.New()
-	if _, err := io.Copy(hash, file); err != nil {
-		return "", err
+
+	// CPU 부하를 줄이기 위해 청크 단위로 읽기 (32KB 버퍼)
+	buffer := make([]byte, 32*1024)
+	for {
+		n, err := file.Read(buffer)
+		if n > 0 {
+			hash.Write(buffer[:n])
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", err
+		}
+
+		// 큰 파일의 경우 CPU 사용량을 줄이기 위해 잠시 대기
+		runtime.Gosched() // 다른 고루틴에게 실행 기회 제공
 	}
 
 	return fmt.Sprintf("%x", hash.Sum(nil)), nil

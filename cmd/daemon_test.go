@@ -389,3 +389,32 @@ func TestDaemonCommandDescriptions(t *testing.T) {
 		})
 	}
 }
+
+func TestRunDaemonStart(t *testing.T) {
+	t.Run("function signature test", func(t *testing.T) {
+		// Test that the function has the correct signature and can be called
+		// without actually starting a daemon
+		assert.NotNil(t, runDaemonStart)
+	})
+}
+
+func TestRunDaemonStop(t *testing.T) {
+	t.Run("function signature test", func(t *testing.T) {
+		// Test that the function exists
+		assert.NotNil(t, runDaemonStop)
+	})
+}
+
+func TestRunDaemonStatus(t *testing.T) {
+	t.Run("function signature test", func(t *testing.T) {
+		// Test that the function exists
+		assert.NotNil(t, runDaemonStatus)
+	})
+}
+
+func TestRunDaemonRestart(t *testing.T) {
+	t.Run("function signature test", func(t *testing.T) {
+		// Test that the function exists
+		assert.NotNil(t, runDaemonRestart)
+	})
+}

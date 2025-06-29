@@ -28,8 +28,8 @@ func TestNewDaemonClient(t *testing.T) {
 
 		assert.NotNil(t, client)
 		assert.Equal(t, config, client.config)
-		assert.Equal(t, 30*time.Second, client.timeout)
-		assert.Equal(t, 3, client.retryCount)
+		assert.Equal(t, 5*time.Second, client.timeout) // 변경된 기본값으로 수정
+		assert.Equal(t, 2, client.retryCount)          // 변경된 기본값으로 수정
 		assert.False(t, client.connected)
 	})
 

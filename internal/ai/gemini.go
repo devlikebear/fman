@@ -10,7 +10,7 @@ import (
 )
 
 // GeminiProvider implements the AIProvider interface for Gemini.
-type GeminiProvider struct{
+type GeminiProvider struct {
 	generativeModel GenerativeModelInterface // Field to hold the generative model, can be mocked for testing
 }
 

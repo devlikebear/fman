@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/devlikebear/fman/internal/db"
 	"github.com/spf13/afero"
@@ -78,10 +79,12 @@ func TestFileScanner_ScanDirectory(t *testing.T) {
 	// Create scanner
 	scanner := NewFileScanner(fs, mockDB)
 
-	// Create options
+	// Create options with resource limits for testing
 	options := &ScanOptions{
-		Verbose:   false,
-		ForceSudo: false,
+		Verbose:       false,
+		ForceSudo:     false,
+		ThrottleDelay: time.Microsecond * 100, // 매우 짧은 지연으로 테스트 속도 유지
+		MaxFileSize:   1024 * 1024,            // 1MB 제한
 	}
 
 	// Perform scan
@@ -144,10 +147,12 @@ func TestFileScanner_ScanDirectoryWithDBInitError(t *testing.T) {
 	// Create scanner
 	scanner := NewFileScanner(fs, mockDB)
 
-	// Create options
+	// Create options with resource limits for testing
 	options := &ScanOptions{
-		Verbose:   false,
-		ForceSudo: false,
+		Verbose:       false,
+		ForceSudo:     false,
+		ThrottleDelay: time.Microsecond * 100, // 테스트용 짧은 지연
+		MaxFileSize:   1024 * 1024,            // 1MB 제한
 	}
 
 	// Perform scan
@@ -177,10 +182,12 @@ func TestFileScanner_ScanDirectoryWithUpsertError(t *testing.T) {
 	// Create scanner
 	scanner := NewFileScanner(fs, mockDB)
 
-	// Create options
+	// Create options with resource limits for testing
 	options := &ScanOptions{
-		Verbose:   false,
-		ForceSudo: false,
+		Verbose:       false,
+		ForceSudo:     false,
+		ThrottleDelay: time.Microsecond * 100, // 테스트용 짧은 지연
+		MaxFileSize:   1024 * 1024,            // 1MB 제한
 	}
 
 	// Perform scan
@@ -349,12 +356,16 @@ func TestFileScanner_calculateFileHashEmptyFile(t *testing.T) {
 
 func TestScanOptions(t *testing.T) {
 	options := &ScanOptions{
-		Verbose:   true,
-		ForceSudo: false,
+		Verbose:       true,
+		ForceSudo:     false,
+		ThrottleDelay: time.Millisecond * 10,
+		MaxFileSize:   50 * 1024 * 1024,
 	}
 
 	assert.True(t, options.Verbose)
 	assert.False(t, options.ForceSudo)
+	assert.Equal(t, time.Millisecond*10, options.ThrottleDelay)
+	assert.Equal(t, int64(50*1024*1024), options.MaxFileSize)
 }
 
 func TestScanStats(t *testing.T) {

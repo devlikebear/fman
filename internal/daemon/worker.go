@@ -17,17 +17,18 @@ import (
 
 // ScanWorker manages background scan execution
 type ScanWorker struct {
-	id           int
-	queue        QueueInterface
-	scanner      scanner.ScannerInterface
-	running      bool
-	ctx          context.Context
-	cancel       context.CancelFunc
-	mu           sync.RWMutex
-	stats        WorkerStats
-	maxRetries   int
-	retryDelay   time.Duration
-	progressChan chan *JobProgress
+	id              int
+	queue           QueueInterface
+	scanner         scanner.ScannerInterface
+	running         bool
+	ctx             context.Context
+	cancel          context.CancelFunc
+	mu              sync.RWMutex
+	stats           WorkerStats
+	maxRetries      int
+	retryDelay      time.Duration
+	progressChan    chan *JobProgress
+	resourceMonitor *ResourceMonitor
 }
 
 // WorkerStats tracks worker performance metrics
@@ -46,13 +47,22 @@ func NewScanWorker(id int, queue QueueInterface) *ScanWorker {
 	database := db.NewDatabase(nil)
 	scannerImpl := scanner.NewFileScanner(fs, database)
 
+	// 리소스 모니터 설정 (데몬용 보수적 설정)
+	resourceLimits := ResourceLimits{
+		MaxMemoryMB:   200,                    // 200MB 메모리 제한
+		MaxCPUPercent: 15.0,                   // 15% CPU 사용률 제한
+		CheckInterval: 3 * time.Second,        // 3초마다 체크
+		ThrottleDelay: 200 * time.Millisecond, // 제한 시 200ms 대기
+	}
+
 	return &ScanWorker{
-		id:           id,
-		queue:        queue,
-		scanner:      scannerImpl,
-		maxRetries:   3,
-		retryDelay:   time.Second * 5,
-		progressChan: make(chan *JobProgress, 100),
+		id:              id,
+		queue:           queue,
+		scanner:         scannerImpl,
+		maxRetries:      3,
+		retryDelay:      time.Second * 5,
+		progressChan:    make(chan *JobProgress, 100),
+		resourceMonitor: NewResourceMonitor(resourceLimits),
 	}
 }
 
@@ -67,6 +77,9 @@ func (w *ScanWorker) Start(ctx context.Context, wg *sync.WaitGroup) {
 
 	w.ctx, w.cancel = context.WithCancel(ctx)
 	w.running = true
+
+	// 리소스 모니터링 시작
+	w.resourceMonitor.Start(w.ctx)
 
 	wg.Add(1)
 	go w.run(wg)
@@ -84,6 +97,9 @@ func (w *ScanWorker) Stop() {
 	if w.cancel != nil {
 		w.cancel()
 	}
+
+	// 리소스 모니터링 중지
+	w.resourceMonitor.Stop()
 	w.running = false
 }
 
@@ -122,6 +138,11 @@ func (w *ScanWorker) run(wg *sync.WaitGroup) {
 		case <-w.ctx.Done():
 			return
 		default:
+		}
+
+		// 리소스 사용량 확인 후 대기 (필요시)
+		if err := w.resourceMonitor.WaitIfThrottling(w.ctx); err != nil {
+			return
 		}
 
 		// Get next job from queue with timeout

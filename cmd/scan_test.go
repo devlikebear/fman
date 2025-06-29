@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/devlikebear/fman/internal/db"
 	"github.com/spf13/afero"
@@ -223,8 +224,39 @@ func TestRunScanAsync_FunctionExists(t *testing.T) {
 	cmd.Flags().Bool("verbose", false, "")
 	cmd.Flags().Bool("force-sudo", false, "")
 
-	// This will fail because no daemon is running, but it tests the function exists
-	err := runScanAsync(cmd, []string{"/test"})
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to connect to daemon")
+	// 테스트 타임아웃 설정 (3초 내에 완료되어야 함)
+	done := make(chan bool)
+	var testErr error
+
+	go func() {
+		// This will fail because no daemon is running, but it tests the function exists
+		testErr = runScanAsync(cmd, []string{"/test"})
+		done <- true
+	}()
+
+	// 3초 타임아웃으로 무한 대기 방지
+	select {
+	case <-done:
+		assert.Error(t, testErr)
+		// 연결 실패 또는 데몬 시작 실패 메시지 중 하나를 확인
+		errorMsg := testErr.Error()
+		hasExpectedError := false
+		expectedErrors := []string{
+			"failed to connect to daemon",
+			"failed to start daemon",
+			"daemon did not start",
+			"connection refused",
+		}
+		for _, expected := range expectedErrors {
+			if assert.Contains(t, errorMsg, expected) {
+				hasExpectedError = true
+				break
+			}
+		}
+		if !hasExpectedError {
+			t.Logf("Unexpected error message: %s", errorMsg)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("TestRunScanAsync_FunctionExists timed out after 3 seconds")
+	}
 }

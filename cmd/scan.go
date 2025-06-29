@@ -6,6 +6,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/devlikebear/fman/internal/daemon"
 	"github.com/devlikebear/fman/internal/db"
@@ -54,14 +55,18 @@ func runScanAsync(cmd *cobra.Command, args []string) error {
 	verbose, _ := cmd.Flags().GetBool("verbose")
 	forceSudo, _ := cmd.Flags().GetBool("force-sudo")
 
-	// Create scan options
+	// Create scan options with resource optimization
 	options := &scanner.ScanOptions{
-		Verbose:   verbose,
-		ForceSudo: forceSudo,
+		Verbose:       verbose,
+		ForceSudo:     forceSudo,
+		ThrottleDelay: time.Millisecond * 10, // 파일 100개마다 10ms 지연
+		MaxFileSize:   50 * 1024 * 1024,      // 50MB 이상 파일은 해시 건너뛰기
 	}
 
-	// Create daemon client
+	// Create daemon client with faster timeouts for better responsiveness
 	client := daemon.NewDaemonClient(nil)
+	client.SetTimeout(2 * time.Second) // 빠른 타임아웃 설정
+	client.SetRetryCount(1)            // 재시도 횟수 최소화
 
 	// Connect to daemon (will start daemon if not running)
 	err := client.Connect()
@@ -99,10 +104,12 @@ func runScan(cmd *cobra.Command, args []string, fs afero.Fs, database db.DBInter
 	verbose, _ := cmd.Flags().GetBool("verbose")
 	forceSudo, _ := cmd.Flags().GetBool("force-sudo")
 
-	// Create scanner options
+	// Create scanner options with resource optimization
 	options := &scanner.ScanOptions{
-		Verbose:   verbose,
-		ForceSudo: forceSudo,
+		Verbose:       verbose,
+		ForceSudo:     forceSudo,
+		ThrottleDelay: time.Millisecond * 10, // 파일 100개마다 10ms 지연
+		MaxFileSize:   50 * 1024 * 1024,      // 50MB 이상 파일은 해시 건너뛰기
 	}
 
 	// Create scanner instance
