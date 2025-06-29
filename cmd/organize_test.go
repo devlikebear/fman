@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/devlikebear/fman/internal/db"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -48,7 +49,7 @@ func TestRunOrganize(t *testing.T) {
 		mockProvider := &MockAIProvider{}
 		mockProvider.On("String").Return("mock-provider")
 		mockProvider.On("SuggestOrganization", mock.Anything, mock.Anything).Return("", fmt.Errorf("mock error"))
-		
+
 		err := runOrganize(organizeCmd, []string{"."}, fileSystem, mockProvider)
 		// Should fail due to mock provider error
 		assert.Error(t, err)
@@ -61,12 +62,15 @@ type MockAIProvider struct {
 	mock.Mock
 }
 
-func (m *MockAIProvider) String() string {
-	args := m.Called()
-	return args.String(0)
-}
-
 func (m *MockAIProvider) SuggestOrganization(ctx context.Context, filePaths []string) (string, error) {
 	args := m.Called(ctx, filePaths)
 	return args.String(0), args.Error(1)
+}
+
+func (m *MockAIProvider) ParseSearchQuery(ctx context.Context, query string) (*db.SearchCriteria, error) {
+	args := m.Called(ctx, query)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*db.SearchCriteria), args.Error(1)
 }

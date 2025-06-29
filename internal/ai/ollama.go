@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/devlikebear/fman/internal/db"
 	"github.com/spf13/viper"
 )
 
@@ -41,6 +42,32 @@ func (p *OllamaProvider) SuggestOrganization(ctx context.Context, filePaths []st
 
 	prompt := buildPrompt(filePaths)
 
+	return p.makeRequest(ctx, baseURL, model, prompt)
+}
+
+// ParseSearchQuery converts natural language query into structured search criteria using Ollama.
+func (p *OllamaProvider) ParseSearchQuery(ctx context.Context, query string) (*db.SearchCriteria, error) {
+	baseURL := viper.GetString("ollama.base_url")
+	if baseURL == "" {
+		return nil, fmt.Errorf("ollama base_url is not set in the configuration")
+	}
+	model := viper.GetString("ollama.model")
+	if model == "" {
+		return nil, fmt.Errorf("ollama model is not set in the configuration")
+	}
+
+	prompt := buildSearchPrompt(query)
+
+	response, err := p.makeRequest(ctx, baseURL, model, prompt)
+	if err != nil {
+		return nil, err
+	}
+
+	return parseSearchCriteriaFromJSON(response)
+}
+
+// makeRequest makes an HTTP request to Ollama API
+func (p *OllamaProvider) makeRequest(ctx context.Context, baseURL, model, prompt string) (string, error) {
 	apiURL := fmt.Sprintf("%s/api/generate", baseURL)
 
 	reqBody := ollamaRequest{

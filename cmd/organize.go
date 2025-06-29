@@ -56,7 +56,10 @@ shell commands to the user for approval before executing them.`,
 
 func runOrganize(cmd *cobra.Command, args []string, fs afero.Fs, provider ai.AIProvider) error {
 	dir := args[0]
-	fmt.Printf("Getting AI suggestions to organize directory: %s (using %s)\n", dir, provider.String())
+
+	// Get provider name from config instead of calling String() method
+	providerName := viper.GetString("ai_provider")
+	fmt.Printf("Getting AI suggestions to organize directory: %s (using %s)\n", dir, providerName)
 
 	var filePaths []string
 	entries, err := afero.ReadDir(fs, dir)
