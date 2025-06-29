@@ -24,6 +24,7 @@ type DaemonClient struct {
 	connected  bool
 	timeout    time.Duration
 	retryCount int
+	testMode   bool // 테스트 모드에서는 daemon 시작 시도하지 않음
 }
 
 // NewDaemonClient creates a new daemon client
@@ -32,11 +33,20 @@ func NewDaemonClient(config *DaemonConfig) *DaemonClient {
 		config = GetDefaultConfig()
 	}
 
-	return &DaemonClient{
+	client := &DaemonClient{
 		config:     config,
 		timeout:    5 * time.Second, // 기본 타임아웃을 5초로 단축
 		retryCount: 2,               // 재시도 횟수 감소
 	}
+
+	// 테스트 환경에서는 testMode 활성화
+	if os.Getenv("FMAN_TEST_MODE") == "1" {
+		client.testMode = true
+		client.timeout = 100 * time.Millisecond // 매우 짧은 타임아웃
+		client.retryCount = 0                   // 재시도 없음
+	}
+
+	return client
 }
 
 // SetTimeout sets the connection timeout
@@ -47,6 +57,11 @@ func (c *DaemonClient) SetTimeout(timeout time.Duration) {
 // SetRetryCount sets the number of connection retries
 func (c *DaemonClient) SetRetryCount(count int) {
 	c.retryCount = count
+}
+
+// SetTestMode enables test mode to prevent daemon startup attempts
+func (c *DaemonClient) SetTestMode(testMode bool) {
+	c.testMode = testMode
 }
 
 // Connect connects to the daemon
@@ -68,8 +83,8 @@ func (c *DaemonClient) Connect() error {
 		}
 		lastErr = err
 
-		// If first attempt fails, try to start daemon
-		if i == 0 && !c.IsDaemonRunning() {
+		// If first attempt fails, try to start daemon (skip in test mode)
+		if i == 0 && !c.testMode && !c.IsDaemonRunning() {
 			// 데몬 시작을 시도하되, 빠른 실패를 위해 더 짧은 타임아웃 사용
 			startErr := c.startDaemonWithTimeout(1 * time.Second)
 			if startErr != nil {
@@ -79,8 +94,12 @@ func (c *DaemonClient) Connect() error {
 		}
 
 		if i < c.retryCount {
-			// 더 짧은 대기 시간으로 CPU 사용량 감소
-			time.Sleep(time.Duration(500) * time.Millisecond)
+			// 테스트 모드에서는 더 짧은 대기 시간 사용
+			if c.testMode {
+				time.Sleep(100 * time.Millisecond)
+			} else {
+				time.Sleep(500 * time.Millisecond)
+			}
 		}
 	}
 

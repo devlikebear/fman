@@ -4,6 +4,7 @@ Copyright © 2025 changheonshin
 package cmd
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -22,6 +23,53 @@ func TestExecute(t *testing.T) {
 			// Execute() would normally be called from main()
 			// Here we just verify it exists and has the right signature
 			// In practice, this would parse command line args and run commands
+		})
+	})
+
+	t.Run("execute with help flag", func(t *testing.T) {
+		// Test root command help directly instead of Execute()
+		// Execute() calls os.Exit which terminates the test
+		buf := new(bytes.Buffer)
+		rootCmd.SetOut(buf)
+		rootCmd.SetErr(buf)
+		rootCmd.SetArgs([]string{"--help"})
+		
+		// Capture output and test that help command works
+		assert.NotPanics(t, func() {
+			// Reset args after test
+			defer func() {
+				rootCmd.SetArgs([]string{})
+				rootCmd.SetOut(nil)
+				rootCmd.SetErr(nil)
+			}()
+			err := rootCmd.Execute()
+			// Help command returns nil error after printing help
+			assert.NoError(t, err)
+			// Verify help output contains expected content
+			output := buf.String()
+			assert.Contains(t, output, "fman")
+			assert.Contains(t, output, "Available Commands")
+		})
+	})
+
+	t.Run("execute with invalid command", func(t *testing.T) {
+		// Test root command with invalid subcommand directly
+		buf := new(bytes.Buffer)
+		rootCmd.SetOut(buf)
+		rootCmd.SetErr(buf)
+		rootCmd.SetArgs([]string{"invalid-command"})
+		
+		// Should return an error instead of calling os.Exit
+		assert.NotPanics(t, func() {
+			defer func() {
+				rootCmd.SetArgs([]string{})
+				rootCmd.SetOut(nil)
+				rootCmd.SetErr(nil)
+			}()
+			err := rootCmd.Execute()
+			// Invalid command should return error
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), "unknown command")
 		})
 	})
 

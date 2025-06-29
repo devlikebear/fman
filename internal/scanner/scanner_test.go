@@ -405,3 +405,81 @@ func TestScannerInterfaceImplementation(t *testing.T) {
 	_, ok := scanner.(*FileScanner)
 	assert.True(t, ok, "Scanner should be of type *FileScanner")
 }
+
+func TestFileScannerProgressTracking(t *testing.T) {
+	// Create in-memory filesystem with test files
+	fs := afero.NewMemMapFs()
+	afero.WriteFile(fs, "/file1.txt", []byte("content1"), 0644)
+	afero.WriteFile(fs, "/file2.txt", []byte("content2"), 0644)
+	afero.WriteFile(fs, "/file3.txt", []byte("content3"), 0644)
+
+	// Create mock database
+	mockDB := &MockDBInterface{}
+	mockDB.On("InitDB").Return(nil)
+	mockDB.On("Close").Return(nil)
+	mockDB.On("UpsertFile", mock.AnythingOfType("*db.File")).Return(nil).Times(3)
+
+	// Create scanner
+	scanner := NewFileScanner(fs, mockDB)
+
+	// Create options
+	options := &ScanOptions{
+		Verbose:   true,
+		ForceSudo: false,
+	}
+
+	// Perform scan
+	ctx := context.Background()
+	stats, err := scanner.ScanDirectory(ctx, "/", options)
+	
+	// Assertions
+	assert.NoError(t, err)
+	assert.NotNil(t, stats)
+	assert.Equal(t, 3, stats.FilesIndexed)
+
+	// Verify mock calls
+	mockDB.AssertExpectations(t)
+}
+
+func TestFileScannerAsyncScan(t *testing.T) {
+	// Create in-memory filesystem
+	fs := afero.NewMemMapFs()
+	afero.WriteFile(fs, "/async_test.txt", []byte("async content"), 0644)
+
+	// Create mock database
+	mockDB := &MockDBInterface{}
+	mockDB.On("InitDB").Return(nil)
+	mockDB.On("Close").Return(nil)
+	mockDB.On("UpsertFile", mock.AnythingOfType("*db.File")).Return(nil).Once()
+
+	// Create scanner
+	scanner := NewFileScanner(fs, mockDB)
+
+	// Test async scan
+	ctx := context.Background()
+	resultCh := make(chan *ScanStats, 1)
+	errorCh := make(chan error, 1)
+
+	go func() {
+		stats, err := scanner.ScanDirectory(ctx, "/", &ScanOptions{})
+		if err != nil {
+			errorCh <- err
+		} else {
+			resultCh <- stats
+		}
+	}()
+
+	// Wait for result
+	select {
+	case stats := <-resultCh:
+		assert.NotNil(t, stats)
+		assert.Equal(t, 1, stats.FilesIndexed)
+	case err := <-errorCh:
+		assert.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Test timed out")
+	}
+
+	// Verify mock calls
+	mockDB.AssertExpectations(t)
+}

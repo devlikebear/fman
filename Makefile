@@ -16,7 +16,7 @@ run:
 
 test:
 	@echo "Running tests with coverage..."
-	@go test ./... -v -coverprofile=coverage.out -p=1
+	@go test -timeout 30s ./... -v -coverprofile=coverage.out -p=1
 	@echo "Checking test coverage..."
 	@go tool cover -func=coverage.out
 

@@ -156,6 +156,51 @@ func TestFindFilesByName(t *testing.T) {
 	assert.Len(t, foundFiles, 0)
 }
 
+func TestDatabaseFindOperations(t *testing.T) {
+	// Create a temporary database for testing
+	tempDir, err := os.MkdirTemp("", "fman_test_db")
+	assert.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", oldHome)
+
+	testDB := NewDatabase(nil).(*Database)
+	err = testDB.InitDB()
+	assert.NoError(t, err)
+	defer testDB.Close()
+
+	// Add test files
+	testFiles := []File{
+		{Path: "/test/file1.txt", Name: "file1.txt", Size: 1024, FileHash: "hash1", ModifiedAt: time.Now()},
+		{Path: "/test/file2.jpg", Name: "file2.jpg", Size: 2048, FileHash: "hash2", ModifiedAt: time.Now()},
+		{Path: "/test/large.bin", Name: "large.bin", Size: 5000, FileHash: "hash3", ModifiedAt: time.Now()},
+	}
+
+	for _, file := range testFiles {
+		err := testDB.UpsertFile(&file)
+		assert.NoError(t, err)
+	}
+
+	t.Run("FindFilesWithHashes", func(t *testing.T) {
+		files, err := testDB.FindFilesWithHashes("", 1000)
+		assert.NoError(t, err)
+		assert.GreaterOrEqual(t, len(files), 3)
+	})
+
+	t.Run("FindFilesByAdvancedCriteria", func(t *testing.T) {
+		minSize := int64(1500)
+		criteria := SearchCriteria{
+			NamePattern: "file",
+			MinSize:     &minSize,
+		}
+		results, err := testDB.FindFilesByAdvancedCriteria(criteria)
+		assert.NoError(t, err)
+		assert.GreaterOrEqual(t, len(results), 1)
+	})
+}
+
 func TestFindFilesWithHashes(t *testing.T) {
 	t.Run("find files with hashes", func(t *testing.T) {
 		mockDB := &MockDB{}

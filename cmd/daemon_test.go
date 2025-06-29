@@ -396,12 +396,56 @@ func TestRunDaemonStart(t *testing.T) {
 		// without actually starting a daemon
 		assert.NotNil(t, runDaemonStart)
 	})
+
+	t.Run("start daemon when not running", func(t *testing.T) {
+		// Test scenario: daemon is not running, should attempt to start
+		cmd := &cobra.Command{}
+		args := []string{}
+
+		// Capture output to suppress daemon startup messages
+		old := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+
+		// Execute the function - expect it to fail in test environment
+		err := runDaemonStart(cmd, args)
+
+		// Restore stdout
+		w.Close()
+		os.Stdout = old
+		io.ReadAll(r) // consume output
+
+		// In test environment, we expect this to fail as no actual daemon infrastructure
+		// but it should not panic
+		assert.Error(t, err)
+	})
 }
 
 func TestRunDaemonStop(t *testing.T) {
 	t.Run("function signature test", func(t *testing.T) {
 		// Test that the function exists
 		assert.NotNil(t, runDaemonStop)
+	})
+
+	t.Run("stop daemon when not running", func(t *testing.T) {
+		// Test scenario: daemon is not running, should print message and return nil
+		cmd := &cobra.Command{}
+		args := []string{}
+
+		// Capture output
+		old := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+
+		err := runDaemonStop(cmd, args)
+
+		w.Close()
+		os.Stdout = old
+		output, _ := io.ReadAll(r)
+
+		// Should succeed when daemon is not running
+		assert.NoError(t, err)
+		assert.Contains(t, string(output), "Daemon is not running")
 	})
 }
 
@@ -410,11 +454,51 @@ func TestRunDaemonStatus(t *testing.T) {
 		// Test that the function exists
 		assert.NotNil(t, runDaemonStatus)
 	})
+
+	t.Run("status when daemon not running", func(t *testing.T) {
+		cmd := &cobra.Command{}
+		args := []string{}
+
+		// Capture output
+		old := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+
+		err := runDaemonStatus(cmd, args)
+
+		w.Close()
+		os.Stdout = old
+		output, _ := io.ReadAll(r)
+
+		// Should succeed and show not running message
+		assert.NoError(t, err)
+		assert.Contains(t, string(output), "Daemon is not running")
+	})
 }
 
 func TestRunDaemonRestart(t *testing.T) {
 	t.Run("function signature test", func(t *testing.T) {
 		// Test that the function exists
 		assert.NotNil(t, runDaemonRestart)
+	})
+
+	t.Run("restart daemon when not running", func(t *testing.T) {
+		cmd := &cobra.Command{}
+		args := []string{}
+
+		// Capture output
+		old := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+
+		err := runDaemonRestart(cmd, args)
+
+		w.Close()
+		os.Stdout = old
+		output, _ := io.ReadAll(r)
+
+		// Should attempt to start daemon (will fail in test environment)
+		assert.Error(t, err)
+		assert.Contains(t, string(output), "Starting daemon")
 	})
 }

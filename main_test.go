@@ -26,8 +26,6 @@ func TestMain(t *testing.T) {
 
 	// This should not panic
 	assert.NotPanics(t, func() {
-		// We can't directly test main() as it would exit the process,
-		// but we can test that the main function exists and is callable
-		// by testing the cmd.Execute() function indirectly
+		main()
 	})
 }

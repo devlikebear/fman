@@ -172,3 +172,27 @@ func TestRunDuplicate(t *testing.T) {
 		mockDB.AssertExpectations(t)
 	})
 }
+
+func TestRunDuplicateDirectly(t *testing.T) {
+	t.Run("runDuplicate with invalid directory", func(t *testing.T) {
+		cmd := duplicateCmd
+		args := []string{"/non/existent/directory"}
+		
+		err := runDuplicate(cmd, args)
+		// May fail due to database initialization or succeed with no duplicates
+		if err != nil {
+			assert.Contains(t, err.Error(), "database")
+		}
+	})
+
+	t.Run("runDuplicate with no arguments", func(t *testing.T) {
+		cmd := duplicateCmd
+		args := []string{}
+		
+		err := runDuplicate(cmd, args)
+		// May fail due to database initialization or succeed with no duplicates
+		if err != nil {
+			assert.Contains(t, err.Error(), "database")
+		}
+	})
+}
