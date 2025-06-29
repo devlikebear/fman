@@ -4,6 +4,7 @@ Copyright © 2025 changheonshin
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strconv"
@@ -33,6 +34,8 @@ The daemon will run in the background and accept scan requests through Unix doma
 If the daemon is already running, this command will show its current status.`,
 	RunE: runDaemonStart,
 }
+
+var backgroundFlag bool
 
 // daemonStopCmd represents the daemon stop command
 var daemonStopCmd = &cobra.Command{
@@ -77,10 +80,18 @@ func init() {
 	daemonCmd.AddCommand(daemonStopCmd)
 	daemonCmd.AddCommand(daemonStatusCmd)
 	daemonCmd.AddCommand(daemonRestartCmd)
+
+	// Add background flag to start command
+	daemonStartCmd.Flags().BoolVar(&backgroundFlag, "background", false, "Run daemon in background (used internally)")
 }
 
 // runDaemonStart handles the daemon start command
 func runDaemonStart(cmd *cobra.Command, args []string) error {
+	// If background flag is set, run daemon server directly
+	if backgroundFlag {
+		return runDaemonServer()
+	}
+
 	client := daemon.NewDaemonClient(nil)
 	defer client.Disconnect()
 
@@ -199,6 +210,26 @@ func runDaemonRestart(cmd *cobra.Command, args []string) error {
 
 	fmt.Println("🚀 Starting daemon...")
 	return runDaemonStart(cmd, args)
+}
+
+// runDaemonServer runs the daemon server directly (for background mode)
+func runDaemonServer() error {
+	config := daemon.GetDefaultConfig()
+	queue := daemon.NewJobQueue(daemon.DefaultQueueSize, 1000)
+	server := daemon.NewDaemonServer(config, queue)
+
+	// Start server
+	ctx := context.Background()
+	if err := server.Start(ctx); err != nil {
+		return err
+	}
+
+	// Block until server is stopped
+	for server.IsRunning() {
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	return nil
 }
 
 // ensureDaemonRunning ensures the daemon is running, starting it if necessary

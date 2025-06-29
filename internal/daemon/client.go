@@ -207,7 +207,7 @@ func (c *DaemonClient) StartDaemon() error {
 		return fmt.Errorf("failed to get executable path: %w", err)
 	}
 
-	// Create daemon start command
+	// Create daemon start command with background flag
 	cmd := exec.Command(executable, "daemon", "start", "--background")
 
 	// Set process attributes for background execution
@@ -225,7 +225,7 @@ func (c *DaemonClient) StartDaemon() error {
 		return fmt.Errorf("failed to start daemon process: %w", err)
 	}
 
-	// Wait for daemon to be ready (더 짧은 타임아웃)
+	// Wait for daemon to be ready
 	return c.waitForDaemon(3 * time.Second)
 }
 
@@ -465,28 +465,10 @@ func (c *DaemonClient) sendMessage(msg *Message) error {
 		return fmt.Errorf("failed to set write deadline: %w", err)
 	}
 
-	// Encode message as JSON
-	data, err := json.Marshal(msg)
-	if err != nil {
-		return fmt.Errorf("failed to marshal message: %w", err)
-	}
-
-	// Send message length first (4 bytes)
-	length := uint32(len(data))
-	lengthBytes := []byte{
-		byte(length >> 24),
-		byte(length >> 16),
-		byte(length >> 8),
-		byte(length),
-	}
-
-	if _, err := c.conn.Write(lengthBytes); err != nil {
-		return fmt.Errorf("failed to write message length: %w", err)
-	}
-
-	// Send message data
-	if _, err := c.conn.Write(data); err != nil {
-		return fmt.Errorf("failed to write message data: %w", err)
+	// Use JSON encoder directly like the server
+	encoder := json.NewEncoder(c.conn)
+	if err := encoder.Encode(msg); err != nil {
+		return fmt.Errorf("failed to encode message: %w", err)
 	}
 
 	return nil
@@ -503,28 +485,11 @@ func (c *DaemonClient) receiveMessage() (*Message, error) {
 		return nil, fmt.Errorf("failed to set read deadline: %w", err)
 	}
 
-	// Read message length (4 bytes)
-	lengthBytes := make([]byte, 4)
-	if _, err := c.conn.Read(lengthBytes); err != nil {
-		return nil, fmt.Errorf("failed to read message length: %w", err)
-	}
-
-	// Parse length
-	length := uint32(lengthBytes[0])<<24 | uint32(lengthBytes[1])<<16 | uint32(lengthBytes[2])<<8 | uint32(lengthBytes[3])
-	if length > 1024*1024 { // 1MB limit
-		return nil, fmt.Errorf("message too large: %d bytes", length)
-	}
-
-	// Read message data
-	data := make([]byte, length)
-	if _, err := c.conn.Read(data); err != nil {
-		return nil, fmt.Errorf("failed to read message data: %w", err)
-	}
-
-	// Decode JSON
+	// Use JSON decoder directly like the server
+	decoder := json.NewDecoder(c.conn)
 	var msg Message
-	if err := json.Unmarshal(data, &msg); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal message: %w", err)
+	if err := decoder.Decode(&msg); err != nil {
+		return nil, fmt.Errorf("failed to decode message: %w", err)
 	}
 
 	return &msg, nil
